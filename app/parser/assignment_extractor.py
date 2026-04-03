@@ -42,8 +42,14 @@ EVENT_PATTERNS = {
 
 # ---- Due date context patterns ----
 DUE_DATE_CONTEXT = re.compile(
-    r"(?:due|deadline|extended? to|moved? to|submit by|turn in by)\s*(?:by|on|at|:)?\s*"
-    r"([A-Za-z0-9,: ]+(?:AM|PM|am|pm)?)",
+    r"(?:due|deadline|extended? to|moved? to|submit by|turn in by|in by)\s*(?:by|on|at|:)?\s*"
+    r"([A-Za-z0-9,: ]+(?:AM|PM|am|pm|EOD|eod|sharp|night|tonight|tmrw)?)",
+    re.IGNORECASE,
+)
+
+# Catch bare "by <time>" patterns like "by 9:40 am sharp", "by 9PM", "by midnight"
+BY_TIME_PATTERN = re.compile(
+    r"\bby\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)(?:\s+sharp)?|\beod\b|\bmidnight\b|\btonight\b|\btonite\b)",
     re.IGNORECASE,
 )
 
@@ -79,20 +85,38 @@ def extract_course(text: str) -> Optional[str]:
     return None
 
 
+def _trim_date_candidate(candidate: str) -> str:
+    """Remove trailing non-date words that bleed past the actual date expression."""
+    # Stop at conjunctions/prepositions that signal the date string has ended
+    candidate = re.split(r'\s+\b(?:with|if|and|but|so|or|unless|when|while|for|from|as)\b', candidate, maxsplit=1)[0]
+    return candidate.strip()[:60]
+
+
 def extract_due_date(text: str, reference: Optional[datetime] = None) -> Optional[datetime]:
+    # Primary: look for explicit due/deadline context
     m = DUE_DATE_CONTEXT.search(text)
     if m:
-        candidate = m.group(1).strip()
+        candidate = _trim_date_candidate(m.group(1))
         parsed = parse_date(candidate, reference_date=reference)
         if parsed:
             return parsed
 
-    # Fallback: try parsing any date-like substring
+    # Secondary: bare "by <time>" pattern (e.g. "by 9:40 am sharp", "by EOD")
+    m2 = BY_TIME_PATTERN.search(text)
+    if m2:
+        candidate = m2.group(1).strip()
+        parsed = parse_date(candidate, reference_date=reference)
+        if parsed:
+            return parsed
+
+    # Tertiary: day/date keywords only when paired with a time (avoids false positives)
     date_keywords = re.findall(
-        r"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|"
-        r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+        r"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+"
+        r"(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)"
+        r"|"
+        r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
         r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-        r"[\w\s,:/]*(?:AM|PM|am|pm)?",
+        r"\s+\d{1,2}(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))?",
         text,
         re.IGNORECASE,
     )
@@ -121,15 +145,45 @@ def determine_event_type(text: str) -> tuple[str, float]:
     return "unknown", 0.1
 
 
-def extract_events(cleaned_text: str, reference_date: Optional[datetime] = None) -> list[ExtractionResult]:
+def extract_events(cleaned_text: str, reference_date: Optional[datetime] = None, subject: Optional[str] = None) -> list[ExtractionResult]:
     """
     Extract all assignment events from a cleaned email body.
     Returns a list of ExtractionResult — one per detected assignment reference.
+    subject is used as a fallback assignment name when no title pattern matches.
     """
     if not cleaned_text.strip():
         return []
 
     results = []
+
+    # Detect whether this is a reply/forward email
+    is_reply = bool(subject and re.match(r"^(Re|Fwd|FW|RE|FWD):", subject.strip()))
+
+    # Reply emails only matter if they explicitly change a deadline (e.g. "extended to Sunday").
+    # All other reply content (confirmations, acknowledgements, discussion) is ignored to avoid
+    # misreading things like "respond by 1:45pm" as the assignment due date.
+    if is_reply:
+        event_type, confidence = determine_event_type(cleaned_text)
+        if event_type == "due_date_changed":
+            due_at = extract_due_date(cleaned_text, reference=reference_date)
+            clean_subject = re.sub(r"^(Re|Fwd|FW|RE|FWD):\s*", "", subject, flags=re.IGNORECASE).strip() or None
+            title = extract_assignment_title(cleaned_text) or clean_subject
+            course = extract_course(cleaned_text)
+            if due_at and title:
+                return [ExtractionResult(
+                    event_type="due_date_changed",
+                    course=course,
+                    assignment_name=title,
+                    raw_excerpt=cleaned_text[:500],
+                    parsed_due_at=due_at,
+                    confidence=confidence,
+                )]
+        return []
+
+    # Strip Re:/Fwd: prefixes from subject for use as fallback title
+    clean_subject = None
+    if subject:
+        clean_subject = re.sub(r"^(Re|Fwd|FW|RE|FWD):\s*", "", subject, flags=re.IGNORECASE).strip() or None
 
     # Split into sentences/chunks for better per-assignment extraction
     chunks = _split_into_chunks(cleaned_text)
@@ -157,22 +211,23 @@ def extract_events(cleaned_text: str, reference_date: Optional[datetime] = None)
         )
         results.append(result)
 
-    # If no chunk had a title but the whole text has strong assignment signals, try whole text
+    # If no chunk had a standard title pattern, try whole text with subject as name
     if not results:
         event_type, confidence = determine_event_type(cleaned_text)
-        if event_type not in ("unknown",) or confidence > 0.2:
-            due_at = extract_due_date(cleaned_text, reference=reference_date)
-            title = extract_assignment_title(cleaned_text)
-            course = extract_course(cleaned_text)
-            if title or event_type != "unknown":
-                results.append(ExtractionResult(
-                    event_type=event_type,
-                    course=course,
-                    assignment_name=title,
-                    raw_excerpt=cleaned_text[:500],
-                    parsed_due_at=due_at,
-                    confidence=confidence * 0.8,
-                ))
+        due_at = extract_due_date(cleaned_text, reference=reference_date)
+        title = extract_assignment_title(cleaned_text) or clean_subject
+        course = extract_course(cleaned_text)
+
+        has_signal = due_at or (event_type != "unknown" and confidence >= 0.5)
+        if title and has_signal:
+            results.append(ExtractionResult(
+                event_type=event_type if event_type != "unknown" else ("due_date" if due_at else "assigned"),
+                course=course,
+                assignment_name=title,
+                raw_excerpt=cleaned_text[:500],
+                parsed_due_at=due_at,
+                confidence=confidence * 0.8 if event_type != "unknown" else 0.3,
+            ))
 
     return results
 
