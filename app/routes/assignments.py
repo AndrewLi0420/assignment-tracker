@@ -16,7 +16,7 @@ def list_assignments(
     q = db.query(Assignment)
     if status:
         q = q.filter(Assignment.status == status)
-    assignments = q.order_by(Assignment.due_at.asc().nullslast()).all()
+    assignments = q.order_by(Assignment.due_at.asc().nulls_last()).all()
     return [_serialize_assignment(a) for a in assignments]
 
 

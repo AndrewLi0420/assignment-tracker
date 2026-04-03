@@ -82,6 +82,8 @@ def _format_assignment(a: Assignment) -> str:
     prefix = f"  {a.course}: " if a.course else "  "
     name = a.assignment_name or "(unknown)"
     if a.due_at:
-        due_str = a.due_at.strftime("%b %-d at %-I:%M %p")
+        hour_12 = a.due_at.hour % 12 or 12
+        ampm = "AM" if a.due_at.hour < 12 else "PM"
+        due_str = f"{a.due_at.strftime('%b')} {a.due_at.day} at {hour_12}:{a.due_at.strftime('%M')} {ampm}"
         return f"{prefix}{name} — due {due_str}"
     return f"{prefix}{name}"
