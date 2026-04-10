@@ -38,12 +38,23 @@ def generate_report_data(db: Session) -> dict:
         .order_by(Assignment.due_at)
         .all()
     )
+    # Assignments with no due date or due date beyond 72h (still active)
+    upcoming = (
+        db.query(Assignment)
+        .filter(
+            Assignment.status.in_(["active", "unknown"]),
+            ~Assignment.id.in_([a.id for a in due_soon]),
+        )
+        .order_by(Assignment.due_at.asc().nulls_last(), Assignment.first_seen_at.desc())
+        .all()
+    )
 
     return {
         "generated_at": now.strftime("%Y-%m-%d %H:%M UTC"),
         "newly_assigned": [_to_dict(a) for a in newly_assigned],
         "due_soon": [_to_dict(a) for a in due_soon],
         "overdue": [_to_dict(a) for a in overdue],
+        "upcoming": [_to_dict(a) for a in upcoming],
     }
 
 

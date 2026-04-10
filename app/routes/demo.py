@@ -30,24 +30,24 @@ main{padding:28px 32px;max-width:880px}
 .stat-card{flex:1;background:#1a1a2e;border:1px solid #2a2a40;border-radius:12px;padding:16px 20px}
 .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#5566aa;margin-bottom:6px}
 .stat-value{font-size:30px;font-weight:700;color:#fff}
-.stat-card.s-new .stat-value{color:#4dde99}
 .stat-card.s-soon .stat-value{color:#f6a031}
 .stat-card.s-overdue .stat-value{color:#e89030}
+.stat-card.s-all .stat-value{color:#7b8cde}
 
 .section{margin-bottom:22px}
 .section-header{display:flex;align-items:center;gap:8px;margin-bottom:9px}
 .dot{width:7px;height:7px;border-radius:50%}
-.dot.new{background:#4dde99}
 .dot.soon{background:#f6a031}
 .dot.overdue{background:#e89030}
+.dot.all{background:#7b8cde}
 .section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:#8888bb}
 
 .cards{display:flex;flex-direction:column;gap:6px}
 .card{background:#1a1a2e;border:1px solid #2a2a40;border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;transition:border-color .15s}
 .card:hover{border-color:#3a3a58}
-.card.new{border-left:3px solid #4dde99}
 .card.soon{border-left:3px solid #f6a031}
 .card.overdue{border-left:3px solid #e89030}
+.card.all{border-left:3px solid #7b8cde}
 .card-left{flex:1;min-width:0}
 .card-name{font-size:14px;font-weight:600;color:#e0e0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-course{font-size:11px;color:#55558a;margin-top:2px}
@@ -80,10 +80,6 @@ main{padding:28px 32px;max-width:880px}
 
 <main>
   <div class="stats">
-    <div class="stat-card s-new">
-      <div class="stat-label">Newly Assigned</div>
-      <div class="stat-value" id="countNew">&ndash;</div>
-    </div>
     <div class="stat-card s-soon">
       <div class="stat-label">Due Soon</div>
       <div class="stat-value" id="countSoon">&ndash;</div>
@@ -92,11 +88,10 @@ main{padding:28px 32px;max-width:880px}
       <div class="stat-label">Overdue</div>
       <div class="stat-value" id="countOverdue">&ndash;</div>
     </div>
-  </div>
-
-  <div class="section">
-    <div class="section-header"><div class="dot new"></div><div class="section-title">Newly Assigned &mdash; last 24h</div></div>
-    <div class="cards" id="newlyAssigned"><div class="skeleton"></div></div>
+    <div class="stat-card s-all">
+      <div class="stat-label">All Active</div>
+      <div class="stat-value" id="countAll">&ndash;</div>
+    </div>
   </div>
 
   <div class="section">
@@ -108,6 +103,11 @@ main{padding:28px 32px;max-width:880px}
     <div class="section-header"><div class="dot overdue"></div><div class="section-title">Overdue</div></div>
     <div class="cards" id="overdue"><div class="skeleton"></div></div>
   </div>
+
+  <div class="section">
+    <div class="section-header"><div class="dot all"></div><div class="section-title">All Active Assignments</div></div>
+    <div class="cards" id="allActive"><div class="skeleton"></div></div>
+  </div>
 </main>
 
 <script>
@@ -116,14 +116,14 @@ function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>
 function renderCards(id, items, cls){
   const el=document.getElementById(id);
   if(!items||!items.length){el.innerHTML='<div class="empty">(none)</div>';return}
-  const icons={overdue:'&#9888; ',soon:'&#9200; ',new:''};
+  const icons={overdue:'&#9888; ',soon:'&#9200; ',all:'',new:''};
   el.innerHTML=items.map(a=>`
     <div class="card ${cls}">
       <div class="card-left">
         <div class="card-name">${esc(a.name)}</div>
         ${a.course?`<div class="card-course">${esc(a.course)}</div>`:''}
       </div>
-      ${a.due_formatted?`<div class="card-due ${cls==='new'?'':cls}">${icons[cls]||''}${esc(a.due_formatted)}</div>`:''}
+      ${a.due_formatted?`<div class="card-due ${cls==='new'||cls==='all'?'':cls}">${icons[cls]||''}${esc(a.due_formatted)}</div>`:'<div class="card-due">no date</div>'}
     </div>`).join('');
 }
 
@@ -132,12 +132,13 @@ async function loadReport(){
     const r=await fetch('/report/json');
     if(!r.ok)throw new Error('HTTP '+r.status);
     const d=await r.json();
-    document.getElementById('countNew').textContent=d.newly_assigned.length;
+    const allActive=(d.upcoming||[]);
     document.getElementById('countSoon').textContent=d.due_soon.length;
     document.getElementById('countOverdue').textContent=d.overdue.length;
-    renderCards('newlyAssigned',d.newly_assigned,'new');
+    document.getElementById('countAll').textContent=allActive.length;
     renderCards('dueSoon',d.due_soon,'soon');
     renderCards('overdue',d.overdue,'overdue');
+    renderCards('allActive',allActive,'all');
     document.getElementById('statusText').textContent='Updated '+d.generated_at;
   }catch(e){
     document.getElementById('statusText').textContent='Failed to load';

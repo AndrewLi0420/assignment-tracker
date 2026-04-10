@@ -9,8 +9,8 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Core rule: if an email body contains a time expression, it is an assignment.
-# Name comes from the body. No academic title patterns required.
+# Core rule: every non-reply email is an assignment.
+# Name comes from the body (or subject). Time in body = due date.
 # ---------------------------------------------------------------------------
 
 # ---- Event type keyword patterns ----
@@ -98,6 +98,24 @@ _NORMALIZATIONS = [
     (re.compile(r'\bmidnight\b', re.IGNORECASE), '11:59 PM'),
 ]
 
+# Profanity: replace with ****
+_PROFANITY = re.compile(
+    r"\b(fuck(?:ing?|ed?|er|ers|s)?|shit(?:ting?|ted|s)?|ass(?:hole|holes)?|"
+    r"bitch(?:es|ing?)?|cunt|dick(?:s)?|cock(?:s)?|pussy(?:ies)?|bastard|"
+    r"motherfucker?s?|motherfucking|whores?|sluts?|fagg?ots?|fags?|"
+    r"horniest?|horny)\b",
+    re.IGNORECASE,
+)
+
+# Lines that are automated Google-Groups boilerplate — skip the whole email
+_AUTO_SUBJECT = re.compile(
+    r"^(you(r| have)?'?re? (subscribed|added|removed|invited)|"
+    r"unsubscribe|delivery (failure|error)|bounce|out of office|"
+    r"auto.?reply|no.?reply|noreply|google groups digest|"
+    r"vacation|away from (my )?office)",
+    re.IGNORECASE,
+)
+
 # Lines that are greetings / signatures — skip when extracting task name
 _SKIP_LINE = re.compile(
     r"^(mr\.|mrs\.|ms\.|dr\.|dear|hello|hi\b|hey|greetings|pledges?|brothers?|everyone|"
@@ -129,17 +147,20 @@ def extract_events(
     """
     Extract assignment events from a cleaned email body.
 
-    Rule: if a non-reply email body contains ANY time expression → it is an
-    assignment. Name is pulled from the first meaningful line of the body,
-    falling back to the email subject.
-
-    Reply emails are only processed when they indicate a deadline change.
+    Rule:
+    - Non-reply emails: ALWAYS an assignment (new thread = new task).
+      Time in body gives the due date; if absent, due_at is None.
+    - Reply emails: only processed when they signal a deadline extension.
     """
     if not cleaned_text.strip():
         return []
 
     is_reply = bool(subject and re.match(r"^(Re|Fwd|FW|RE|FWD)[\s:]", subject.strip()))
     clean_subject = re.sub(r"^(Re|Fwd|FW|RE|FWD)[\s:]+", "", subject or "", flags=re.IGNORECASE).strip() or None
+
+    # Skip automated / system emails
+    if clean_subject and _AUTO_SUBJECT.search(clean_subject):
+        return []
 
     # ------------------------------------------------------------------
     # Reply emails: only care about explicit deadline extensions
@@ -151,7 +172,7 @@ def extract_events(
             if due_at and clean_subject:
                 return [ExtractionResult(
                     event_type="due_date_changed",
-                    assignment_name=clean_subject,
+                    assignment_name=_censor_profanity(clean_subject),
                     raw_excerpt=cleaned_text[:500],
                     parsed_due_at=due_at,
                     confidence=confidence,
@@ -159,7 +180,7 @@ def extract_events(
         return []
 
     # ------------------------------------------------------------------
-    # Original (non-reply) emails: time in body → assignment
+    # Original (non-reply) emails: every new thread is an assignment
     # ------------------------------------------------------------------
     due_at = extract_due_date(cleaned_text, reference=reference_date)
 
@@ -177,7 +198,7 @@ def extract_events(
             except (ValueError, AttributeError):
                 pass
 
-    # Punishment emails: accept even without explicit time (use reference date EOD)
+    # Punishment emails: use reference date EOD if no explicit time
     event_type, confidence = _determine_event_type(cleaned_text)
     is_punishment = event_type == "punishment" or bool(
         clean_subject and re.search(r"\b(punishment|penalty|apolog|rizz|date pledge)\b", clean_subject, re.IGNORECASE)
@@ -186,13 +207,12 @@ def extract_events(
         from app.utils.dates import parse_date as _pd
         due_at = _pd("11:59 PM", reference_date=reference_date)
 
-    if due_at is None:
-        return []
-
-    # For Dailies, the body just says "attached" — use subject as name
+    # For Dailies, use subject as name; for others use body then fall back to subject
     name = clean_subject if _is_dailies else (_extract_task_name(cleaned_text) or clean_subject)
     if not name:
         return []
+
+    name = _censor_profanity(name)
 
     if event_type == "unknown":
         event_type = "punishment" if is_punishment else "assigned"
@@ -202,7 +222,7 @@ def extract_events(
         event_type=event_type,
         assignment_name=name,
         raw_excerpt=cleaned_text[:500],
-        parsed_due_at=due_at,
+        parsed_due_at=due_at,  # None is OK — due date not always stated
         confidence=confidence,
     )]
 
@@ -286,6 +306,11 @@ def _determine_event_type(text: str) -> tuple[str, float]:
             return etype, min(0.5 + 0.1 * scores[etype], 0.9)
 
     return "unknown", 0.1
+
+
+def _censor_profanity(text: str) -> str:
+    """Replace profane words with ****."""
+    return _PROFANITY.sub("****", text).strip()
 
 
 def _preprocess(text: str) -> str:
