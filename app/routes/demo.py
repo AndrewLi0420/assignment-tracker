@@ -8,7 +8,7 @@ _HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lisser Bot</title>
+<title>ListServ Bot</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d0d14;color:#d4d4e0;min-height:100vh}
@@ -68,7 +68,7 @@ main{padding:28px 32px;max-width:880px}
 <header>
   <div class="logo">
     <div class="logo-text">
-      <h1>Listserv Bot</h1>
+      <h1>ListServ Bot</h1>
       <p>Alpha Eta Assignment Tracker</p>
     </div>
   </div>
