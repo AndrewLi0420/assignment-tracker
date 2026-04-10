@@ -75,6 +75,13 @@ def _apply_event(assignment: Assignment, event: AssignmentEvent) -> None:
             assignment.due_at = event.parsed_due_at
         _append_note(assignment, "Reminder sent")
 
+    elif event.event_type == "unknown":
+        # Couldn't classify the event, but still apply a parsed due date if present
+        if event.parsed_due_at:
+            assignment.due_at = event.parsed_due_at
+        if assignment.status in ("unknown", None):
+            assignment.status = "active"
+
 
 def _append_note(assignment: Assignment, note: str) -> None:
     if assignment.notes:

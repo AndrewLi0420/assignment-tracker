@@ -83,7 +83,7 @@ def run_sync(db: Session) -> dict:
                 raw_excerpt=ev.raw_excerpt,
                 parsed_due_at=ev.parsed_due_at,
                 confidence=ev.confidence,
-                created_at=datetime.utcnow(),
+                created_at=reference_date,  # email receive time, not processing time
             )
             db.add(event_row)
             db.flush()

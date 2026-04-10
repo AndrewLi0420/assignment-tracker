@@ -68,6 +68,13 @@ COURSE_PATTERNS = [
     re.compile(r"\b([A-Z]{2,5})\s*(\d{1,4}[A-Z]?)\b"),  # e.g. CS 101, MATH 54B
 ]
 
+# Tokens that match COURSE_PATTERNS but are never course codes
+_COURSE_DENYLIST = {
+    "AM", "PM", "HW", "PS", "BY", "TO", "AT", "IN", "ON", "OR",
+    "AND", "EOD", "THE", "FOR", "DUE", "LAB", "HI", "RE", "FW",
+    "FWD", "NO", "OK", "TA",
+}
+
 
 @dataclass
 class ExtractionResult:
@@ -89,9 +96,9 @@ def extract_assignment_title(text: str) -> Optional[str]:
 
 def extract_course(text: str) -> Optional[str]:
     for pattern in COURSE_PATTERNS:
-        m = pattern.search(text)
-        if m:
-            return m.group(0).strip()
+        for m in pattern.finditer(text):
+            if m.group(1).upper() not in _COURSE_DENYLIST:
+                return m.group(0).strip()
     return None
 
 
@@ -198,13 +205,18 @@ def extract_events(cleaned_text: str, reference_date: Optional[datetime] = None,
     # Split into sentences/chunks for better per-assignment extraction
     chunks = _split_into_chunks(cleaned_text)
 
+    # Extract course from the full email text once as a fallback for chunks
+    # that don't mention the course code inline (e.g. "CS 101" in greeting,
+    # "HW 3 due Friday" in a later paragraph).
+    full_text_course = extract_course(cleaned_text)
+
     for chunk in chunks:
         title = extract_assignment_title(chunk)
         if not title:
             continue
 
         event_type, confidence = determine_event_type(chunk)
-        course = extract_course(chunk)
+        course = extract_course(chunk) or full_text_course
         due_at = extract_due_date(chunk, reference=reference_date)
 
         if due_at and event_type == "unknown":
