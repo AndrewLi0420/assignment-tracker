@@ -8,7 +8,7 @@ class Config:
     GMAIL_QUERY: str = os.getenv("GMAIL_QUERY", "to:listserv@school.edu OR from:listserv@school.edu")
     TIMEZONE: str = os.getenv("TIMEZONE", "America/Los_Angeles")
     NIGHTLY_REPORT_HOUR: int = int(os.getenv("NIGHTLY_REPORT_HOUR", "21"))
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./assignments.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:////tmp/assignments.db")
     GMAIL_CREDENTIALS_FILE: str = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json")
     GMAIL_TOKEN_FILE: str = os.getenv("GMAIL_TOKEN_FILE", "token.json")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

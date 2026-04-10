@@ -37,8 +37,7 @@ def _run_nightly_report():
 
         report = generate_nightly_report(db)
         print(report)
-        report_path = f"reports/nightly_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.txt"
-        os.makedirs("reports", exist_ok=True)
+        report_path = f"/tmp/nightly_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.txt"
         with open(report_path, "w") as f:
             f.write(report)
         logger.info("Nightly report saved to %s", report_path)
