@@ -148,13 +148,25 @@ async function loadReport(){
 async function syncAndRefresh(){
   const btn=document.getElementById('syncBtn');
   btn.disabled=true;
-  btn.innerHTML='<span class="spinner"></span>Syncing\u2026';
-  document.getElementById('statusText').textContent='Syncing with Gmail\u2026';
+  let totalMessages=0, totalEvents=0, batch=0;
   try{
-    const r=await fetch('/sync',{method:'POST'});
-    const d=await r.json();
-    const msg=d.error?('Error: '+d.error):`Synced \u2014 ${d.new_messages??0} new messages, ${d.new_events??0} new events`;
-    document.getElementById('statusText').textContent=msg;
+    while(true){
+      batch++;
+      btn.innerHTML=`<span class="spinner"></span>Syncing batch ${batch}\u2026`;
+      document.getElementById('statusText').textContent=`Scanning emails (batch ${batch})\u2026`;
+      const r=await fetch('/sync',{method:'POST'});
+      if(!r.ok){const t=await r.text();throw new Error(t.slice(0,120));}
+      const d=await r.json();
+      if(d.error){document.getElementById('statusText').textContent='Error: '+d.error;break;}
+      totalMessages+=d.new_messages??0;
+      totalEvents+=d.new_events??0;
+      const remaining=d.remaining??0;
+      if(remaining<=0){
+        document.getElementById('statusText').textContent=`Done \u2014 ${totalMessages} new emails, ${totalEvents} assignments found`;
+        break;
+      }
+      document.getElementById('statusText').textContent=`Batch ${batch} done \u2014 ${remaining} emails remaining\u2026`;
+    }
     await loadReport();
   }catch(e){
     document.getElementById('statusText').textContent='Sync failed: '+e.message;

@@ -12,7 +12,7 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def run_sync(db: Session) -> dict:
+def run_sync(db: Session, max_new: int = 25) -> dict:
     """
     Main sync entrypoint:
     1. Fetch new Gmail messages
@@ -36,7 +36,9 @@ def run_sync(db: Session) -> dict:
         service, config.GMAIL_QUERY, known_ids=existing_ids,
         hard_limit=config.MAX_MESSAGES_PER_SYNC,
     )
-    logger.info("Found %d new messages to process", len(new_ids))
+    total_pending = len(new_ids)
+    new_ids = new_ids[:max_new]  # process a safe batch to avoid Vercel timeout
+    logger.info("Found %d new messages total, processing %d this call", total_pending, len(new_ids))
 
     new_message_count = 0
     new_event_count = 0
@@ -104,5 +106,6 @@ def run_sync(db: Session) -> dict:
     return {
         "new_messages": new_message_count,
         "new_events": new_event_count,
-        "total_seen": len(new_ids),
+        "processed": len(new_ids),
+        "remaining": total_pending - len(new_ids),
     }

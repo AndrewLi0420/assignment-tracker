@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -8,6 +8,9 @@ router = APIRouter()
 
 
 @router.post("/sync")
-def sync(db: Session = Depends(get_db)):
-    result = run_sync(db)
+def sync(
+    db: Session = Depends(get_db),
+    limit: int = Query(25, description="Max new messages to process per call (keep low to avoid timeout)"),
+):
+    result = run_sync(db, max_new=limit)
     return result

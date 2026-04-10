@@ -18,12 +18,16 @@ TITLE_PATTERNS = [
     re.compile(r"\b(midterm|final\s*exam|final\s*project)\b", re.IGNORECASE),
     re.compile(r"\b(assignment)\s*#?\s*(\d+[a-z]?)\b", re.IGNORECASE),
     re.compile(r"\b(discussion)\s*#?\s*(\d+[a-z]?)\b", re.IGNORECASE),
+    # Listserv / fraternity patterns
+    re.compile(r"\b(dailies?)\s*(?:\d{1,2}/\d{1,2})?\b", re.IGNORECASE),
+    re.compile(r"\b(task|tasks)\b", re.IGNORECASE),
 ]
 
 # ---- Event type keyword patterns ----
 EVENT_PATTERNS = {
     "assigned": re.compile(
-        r"\b(released?|assigned?|posted?|available|out now|published)\b", re.IGNORECASE
+        r"\b(released?|assigned?|posted?|available|out now|published|complete|task|tasks|todo|to-do|get\s+this\s+done|finish)\b",
+        re.IGNORECASE,
     ),
     "overdue": re.compile(
         r"\b(overdue|past due|missed|late submission)\b", re.IGNORECASE
@@ -33,10 +37,11 @@ EVENT_PATTERNS = {
         re.IGNORECASE,
     ),
     "reminder": re.compile(
-        r"\b(reminder|don.t forget|heads.?up|friendly reminder)\b", re.IGNORECASE
+        r"\b(reminder|don.t forget|heads.?up|friendly reminder|response\s*\?|wake\s*up)\b",
+        re.IGNORECASE,
     ),
     "due_date": re.compile(
-        r"\b(due|deadline|submit by|turn in by)\b", re.IGNORECASE
+        r"\b(due|deadline|submit by|turn in by|by\s+\d{1,2}[:/])\b", re.IGNORECASE
     ),
 }
 
@@ -240,7 +245,17 @@ def extract_events(cleaned_text: str, reference_date: Optional[datetime] = None,
         title = extract_assignment_title(cleaned_text) or clean_subject
         course = extract_course(cleaned_text)
 
-        has_signal = due_at or (event_type != "unknown" and confidence >= 0.5)
+        # Accept subject as assignment name when:
+        #   - there's a due date, OR
+        #   - event type is recognisable, OR
+        #   - subject itself looks like a recurring assignment (Dailies, BC, etc.)
+        subject_looks_like_assignment = bool(
+            clean_subject and re.search(
+                r"\b(dailies?|task|tasks|bc|pbro|pledge|brotherhood|chapter|dues?|service)\b",
+                clean_subject, re.IGNORECASE,
+            )
+        )
+        has_signal = due_at or (event_type != "unknown" and confidence >= 0.4) or subject_looks_like_assignment
         if title and has_signal:
             results.append(ExtractionResult(
                 event_type=event_type if event_type != "unknown" else ("due_date" if due_at else "assigned"),
