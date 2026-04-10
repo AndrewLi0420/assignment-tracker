@@ -1,5 +1,7 @@
 import base64
+import json
 import os
+import tempfile
 from datetime import datetime
 from typing import Optional
 from email import message_from_bytes
@@ -18,32 +20,68 @@ logger = get_logger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
-def get_gmail_service():
-    creds = None
+def _load_creds_from_env() -> Credentials | None:
+    """Load token from GMAIL_TOKEN_JSON env var (used on Railway/production)."""
+    token_json = os.getenv("GMAIL_TOKEN_JSON")
+    if token_json:
+        return Credentials.from_authorized_user_info(json.loads(token_json), SCOPES)
+    return None
 
-    if os.path.exists(config.GMAIL_TOKEN_FILE):
+
+def _save_creds(creds: Credentials) -> None:
+    """Persist token — to file if writable, always log the JSON for env-var setup."""
+    token_json = creds.to_json()
+    try:
+        with open(config.GMAIL_TOKEN_FILE, "w") as f:
+            f.write(token_json)
+    except OSError:
+        pass
+    # If no file-based storage, print so the token can be copied into GMAIL_TOKEN_JSON
+    if not os.path.exists(config.GMAIL_TOKEN_FILE):
+        logger.info("GMAIL_TOKEN_JSON (copy this into your Railway env var):\n%s", token_json)
+
+
+def _get_credentials_file() -> str:
+    """Return path to credentials JSON, writing from env var if needed."""
+    creds_json = os.getenv("GMAIL_CREDENTIALS_JSON")
+    if creds_json:
+        # Write to a temp file so InstalledAppFlow can read it
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        tmp.write(creds_json)
+        tmp.close()
+        return tmp.name
+    if not os.path.exists(config.GMAIL_CREDENTIALS_FILE):
+        raise FileNotFoundError(
+            f"Gmail credentials not found. Set GMAIL_CREDENTIALS_JSON env var "
+            f"or place credentials.json at {config.GMAIL_CREDENTIALS_FILE}"
+        )
+    return config.GMAIL_CREDENTIALS_FILE
+
+
+def get_gmail_service():
+    # 1. Try env-var token (Railway/production)
+    creds = _load_creds_from_env()
+
+    # 2. Fall back to token file (local dev)
+    if not creds and os.path.exists(config.GMAIL_TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(config.GMAIL_TOKEN_FILE, SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
+                _save_creds(creds)
             except Exception:
-                # Refresh token revoked or expired — wipe stale token and fall through to re-auth
-                os.remove(config.GMAIL_TOKEN_FILE)
+                logger.warning("Token refresh failed — re-auth required")
+                if os.path.exists(config.GMAIL_TOKEN_FILE):
+                    os.remove(config.GMAIL_TOKEN_FILE)
                 creds = None
 
         if not creds or not creds.valid:
-            if not os.path.exists(config.GMAIL_CREDENTIALS_FILE):
-                raise FileNotFoundError(
-                    f"Gmail credentials file not found: {config.GMAIL_CREDENTIALS_FILE}\n"
-                    "Download it from Google Cloud Console and place it in the project root."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(config.GMAIL_CREDENTIALS_FILE, SCOPES)
+            creds_file = _get_credentials_file()
+            flow = InstalledAppFlow.from_client_secrets_file(creds_file, SCOPES)
             creds = flow.run_local_server(port=0)
-
-        with open(config.GMAIL_TOKEN_FILE, "w") as token_file:
-            token_file.write(creds.to_json())
+            _save_creds(creds)
 
     return build("gmail", "v1", credentials=creds)
 
