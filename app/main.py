@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db import init_db
-from app.routes import health, sync, assignments, reports, demo
+from app.routes import health, sync, assignments, reports, demo, admin
 from app.utils.logging import get_logger
 
 _IS_VERCEL = os.getenv("VERCEL") == "1"
@@ -32,3 +32,4 @@ app.include_router(health.router)
 app.include_router(sync.router)
 app.include_router(assignments.router)
 app.include_router(reports.router)
+app.include_router(admin.router)
