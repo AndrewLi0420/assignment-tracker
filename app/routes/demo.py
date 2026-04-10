@@ -14,8 +14,7 @@ _HTML = """<!DOCTYPE html>
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d0d14;color:#d4d4e0;min-height:100vh}
 
 header{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);border-bottom:1px solid #2a2a40;padding:16px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
-.logo{display:flex;align-items:center;gap:12px}
-.logo-icon{width:38px;height:38px;background:linear-gradient(135deg,#6c63ff,#3ecfcf);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.logo{display:flex;align-items:center}
 .logo-text h1{font-size:17px;font-weight:700;color:#fff}
 .logo-text p{font-size:11px;color:#5566aa;margin-top:1px}
 .header-right{display:flex;align-items:center;gap:14px}
@@ -33,14 +32,14 @@ main{padding:28px 32px;max-width:880px}
 .stat-value{font-size:30px;font-weight:700;color:#fff}
 .stat-card.s-new .stat-value{color:#4dde99}
 .stat-card.s-soon .stat-value{color:#f6a031}
-.stat-card.s-overdue .stat-value{color:#ff5a5a}
+.stat-card.s-overdue .stat-value{color:#e89030}
 
 .section{margin-bottom:22px}
 .section-header{display:flex;align-items:center;gap:8px;margin-bottom:9px}
 .dot{width:7px;height:7px;border-radius:50%}
 .dot.new{background:#4dde99}
 .dot.soon{background:#f6a031}
-.dot.overdue{background:#ff5a5a}
+.dot.overdue{background:#e89030}
 .section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:#8888bb}
 
 .cards{display:flex;flex-direction:column;gap:6px}
@@ -48,12 +47,12 @@ main{padding:28px 32px;max-width:880px}
 .card:hover{border-color:#3a3a58}
 .card.new{border-left:3px solid #4dde99}
 .card.soon{border-left:3px solid #f6a031}
-.card.overdue{border-left:3px solid #ff5a5a}
+.card.overdue{border-left:3px solid #e89030}
 .card-left{flex:1;min-width:0}
 .card-name{font-size:14px;font-weight:600;color:#e0e0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-course{font-size:11px;color:#55558a;margin-top:2px}
 .card-due{font-size:12px;color:#66669a;white-space:nowrap;margin-left:16px}
-.card-due.overdue{color:#ff5a5a;font-weight:600}
+.card-due.overdue{color:#e89030;font-weight:600}
 .card-due.soon{color:#f6a031}
 .empty{color:#33334a;font-size:13px;font-style:italic;padding:10px 0}
 
@@ -68,10 +67,9 @@ main{padding:28px 32px;max-width:880px}
 
 <header>
   <div class="logo">
-    <div class="logo-icon">🤖</div>
     <div class="logo-text">
-      <h1>Lisser Bot</h1>
-      <p>Alpha Epsilon Zeta &middot; Spring 2026</p>
+      <h1>Listserv Bot</h1>
+      <p>Alpha Eta</p>
     </div>
   </div>
   <div class="header-right">

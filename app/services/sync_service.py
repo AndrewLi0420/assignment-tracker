@@ -25,8 +25,8 @@ def run_sync(db: Session) -> dict:
 
     try:
         service = get_gmail_service()
-    except FileNotFoundError as e:
-        logger.error(str(e))
+    except Exception as e:
+        logger.error("Failed to get Gmail service: %s", e)
         return {"error": str(e), "new_messages": 0, "new_events": 0}
 
     existing_ids = {
