@@ -35,6 +35,7 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
     new_ids = list_new_message_ids(
         service, config.GMAIL_QUERY, known_ids=existing_ids,
         hard_limit=config.MAX_MESSAGES_PER_SYNC,
+        fetch_target=max_new * 4,  # list slightly ahead so remaining count is meaningful
     )
     total_pending = len(new_ids)
     new_ids = new_ids[:max_new]  # process a safe batch to avoid Vercel timeout
@@ -103,9 +104,16 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
     # Refresh statuses (overdue / due_soon)
     refresh_statuses(db)
 
+    processed_count = len(new_ids)
+    remaining = total_pending - processed_count
+    # If we stopped listing early (fetch_target hit), there may be more messages
+    # beyond what we counted.  Signal at least 1 remaining so the frontend loops.
+    if remaining == 0 and new_message_count > 0 and total_pending >= max_new * 4:
+        remaining = 1
+
     return {
         "new_messages": new_message_count,
         "new_events": new_event_count,
-        "processed": len(new_ids),
-        "remaining": total_pending - len(new_ids),
+        "processed": processed_count,
+        "remaining": remaining,
     }

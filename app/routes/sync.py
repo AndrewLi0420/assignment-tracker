@@ -10,7 +10,7 @@ router = APIRouter()
 @router.post("/sync")
 def sync(
     db: Session = Depends(get_db),
-    limit: int = Query(25, description="Max new messages to process per call (keep low to avoid timeout)"),
+    limit: int = Query(8, description="Max new messages to process per call (keep low to avoid timeout)"),
 ):
     result = run_sync(db, max_new=limit)
     return result

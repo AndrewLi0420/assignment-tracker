@@ -112,13 +112,19 @@ def list_message_ids(service, query: str, max_results: int = 100) -> list[str]:
     return message_ids
 
 
-def list_new_message_ids(service, query: str, known_ids: set, hard_limit: int = 2000) -> list[str]:
+def list_new_message_ids(
+    service,
+    query: str,
+    known_ids: set,
+    hard_limit: int = 2000,
+    fetch_target: int = 50,
+) -> list[str]:
     """
-    Paginate through ALL Gmail results (newest-first) and return IDs not in known_ids.
+    Paginate Gmail results (newest-first) and return IDs not in known_ids.
 
-    No early-stop: missing originals may be older than already-known messages,
-    so we must walk the full history up to hard_limit.  For a semester-sized
-    group (~300-500 emails) this is only 3-5 API calls per sync.
+    Stops listing after collecting fetch_target new IDs to keep each Vercel
+    invocation short.  A second sync call will continue because the newly
+    processed IDs will be in known_ids, causing the next page to be scanned.
     """
     new_ids = []
     page_token = None
@@ -137,6 +143,11 @@ def list_new_message_ids(service, query: str, known_ids: set, hard_limit: int = 
 
         page_token = result.get("nextPageToken")
         if not page_token:
+            break
+
+        # Stop listing early once we have plenty to work with; subsequent
+        # calls will naturally advance to the next page as known_ids grows.
+        if len(new_ids) >= fetch_target:
             break
 
     return new_ids
