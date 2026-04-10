@@ -2,7 +2,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.config import config
-from app.gmail_client import get_gmail_service, list_message_ids, fetch_message
+from app.gmail_client import get_gmail_service, list_new_message_ids, fetch_message
 from app.models import EmailMessage, AssignmentEvent
 from app.parser.email_cleaner import clean_new_message_text
 from app.parser.assignment_extractor import extract_events
@@ -29,15 +29,14 @@ def run_sync(db: Session) -> dict:
         logger.error(str(e))
         return {"error": str(e), "new_messages": 0, "new_events": 0}
 
-    message_ids = list_message_ids(service, config.GMAIL_QUERY, max_results=config.MAX_MESSAGES_PER_SYNC)
-    logger.info("Found %d messages from Gmail query", len(message_ids))
-
-    # Determine which are new (not yet stored)
     existing_ids = {
         row[0] for row in db.query(EmailMessage.gmail_message_id).all()
     }
-    new_ids = [mid for mid in message_ids if mid not in existing_ids]
-    logger.info("%d new messages to process", len(new_ids))
+    new_ids = list_new_message_ids(
+        service, config.GMAIL_QUERY, known_ids=existing_ids,
+        hard_limit=config.MAX_MESSAGES_PER_SYNC,
+    )
+    logger.info("Found %d new messages to process", len(new_ids))
 
     new_message_count = 0
     new_event_count = 0
@@ -105,5 +104,5 @@ def run_sync(db: Session) -> dict:
     return {
         "new_messages": new_message_count,
         "new_events": new_event_count,
-        "total_seen": len(message_ids),
+        "total_seen": len(new_ids),
     }

@@ -47,9 +47,19 @@ DUE_DATE_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 
-# Catch bare "by <time>" patterns like "by 9:40 am sharp", "by 9PM", "by midnight"
+# Catch "by <time/day/date>" patterns like "by 9:40 am", "by Friday EOD", "by April 15"
 BY_TIME_PATTERN = re.compile(
-    r"\bby\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)(?:\s+sharp)?|\beod\b|\bmidnight\b|\btonight\b|\btonite\b)",
+    r"\bby\s+("
+    r"\d{1,2}(?::\d{2})?\s*(?:am|pm)(?:\s+sharp)?"                          # by 9:40 am [sharp]
+    r"|eod\b|midnight\b|tonight\b|tonite\b"                                   # by EOD / midnight / tonight
+    r"|(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)"
+    r"(?:\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm))?"                     # [at 9pm]
+    r"(?:\s+(?:eod|midnight|night|noon|morning))?"                             # [EOD / night]
+    r"|tomorrow(?:\s+night)?(?:\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm))?"  # by tomorrow [night]
+    r"|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+\d{1,2}(?:,?\s+\d{4})?(?:\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm))?"  # by April 15 [at 5pm]
+    r")",
     re.IGNORECASE,
 )
 

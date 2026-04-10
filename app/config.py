@@ -12,8 +12,8 @@ class Config:
     GMAIL_CREDENTIALS_FILE: str = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json")
     GMAIL_TOKEN_FILE: str = os.getenv("GMAIL_TOKEN_FILE", "token.json")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    # Max messages to fetch per sync run (safety limit)
-    MAX_MESSAGES_PER_SYNC: int = int(os.getenv("MAX_MESSAGES_PER_SYNC", "100"))
+    # Hard cap on messages fetched per sync (safety limit — covers a full semester)
+    MAX_MESSAGES_PER_SYNC: int = int(os.getenv("MAX_MESSAGES_PER_SYNC", "2000"))
 
 
 config = Config()

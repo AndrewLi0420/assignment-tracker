@@ -26,8 +26,14 @@ def get_gmail_service():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception:
+                # Refresh token revoked or expired — wipe stale token and fall through to re-auth
+                os.remove(config.GMAIL_TOKEN_FILE)
+                creds = None
+
+        if not creds or not creds.valid:
             if not os.path.exists(config.GMAIL_CREDENTIALS_FILE):
                 raise FileNotFoundError(
                     f"Gmail credentials file not found: {config.GMAIL_CREDENTIALS_FILE}\n"
@@ -61,6 +67,36 @@ def list_message_ids(service, query: str, max_results: int = 100) -> list[str]:
             break
 
     return message_ids
+
+
+def list_new_message_ids(service, query: str, known_ids: set, hard_limit: int = 2000) -> list[str]:
+    """
+    Paginate through ALL Gmail results (newest-first) and return IDs not in known_ids.
+
+    No early-stop: missing originals may be older than already-known messages,
+    so we must walk the full history up to hard_limit.  For a semester-sized
+    group (~300-500 emails) this is only 3-5 API calls per sync.
+    """
+    new_ids = []
+    page_token = None
+    total_seen = 0
+
+    while total_seen < hard_limit:
+        kwargs = {"userId": "me", "q": query, "maxResults": min(100, hard_limit - total_seen)}
+        if page_token:
+            kwargs["pageToken"] = page_token
+
+        result = service.users().messages().list(**kwargs).execute()
+        page_ids = [m["id"] for m in result.get("messages", [])]
+        total_seen += len(page_ids)
+
+        new_ids.extend(mid for mid in page_ids if mid not in known_ids)
+
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+
+    return new_ids
 
 
 def fetch_message(service, message_id: str) -> dict:
