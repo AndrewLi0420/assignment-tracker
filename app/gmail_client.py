@@ -209,7 +209,7 @@ def _decode_base64(data: str) -> str:
 def _html_to_text(html: str) -> str:
     try:
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         return soup.get_text(separator="\n")
     except Exception:
         return html
