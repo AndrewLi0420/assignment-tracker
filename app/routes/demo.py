@@ -69,7 +69,7 @@ main{padding:28px 32px;max-width:880px}
   <div class="logo">
     <div class="logo-text">
       <h1>Listserv Bot</h1>
-      <p>Alpha Eta</p>
+      <p>Alpha Eta Assignment Tracker</p>
     </div>
   </div>
   <div class="header-right">

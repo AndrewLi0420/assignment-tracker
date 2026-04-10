@@ -78,6 +78,11 @@ def get_gmail_service():
                 creds = None
 
         if not creds or not creds.valid:
+            if os.getenv("VERCEL"):
+                raise RuntimeError(
+                    "Gmail token is missing or expired. Re-run the local OAuth flow, "
+                    "then update the GMAIL_TOKEN_JSON environment variable in Vercel."
+                )
             creds_file = _get_credentials_file()
             flow = InstalledAppFlow.from_client_secrets_file(creds_file, SCOPES)
             creds = flow.run_local_server(port=0)
