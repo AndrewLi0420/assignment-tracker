@@ -172,6 +172,7 @@ def extract_events(
       Layer 2 — sentence-level NLP keyword scoring to catch multiple
                 assignments within a single email.
     Results are merged and deduplicated by normalized name.
+    Every result gets a due date: sentence date → email-wide date → EOD fallback.
     """
     if not cleaned_text.strip():
         return []
@@ -182,15 +183,22 @@ def extract_events(
     if clean_subject and _AUTO_SUBJECT.search(clean_subject):
         return []
 
+    # Compute the email-wide due date once — used as fallback for all results
+    email_due = extract_due_date(cleaned_text, reference=reference_date)
+    # Last-resort fallback: email received date at 11:59 PM
+    eod_fallback = _eod(reference_date)
+
     # ------------------------------------------------------------------
     # Layer 1 — existing whole-email regex logic (unchanged)
     # ------------------------------------------------------------------
-    layer1 = _layer1_extract(cleaned_text, reference_date, is_reply, clean_subject)
+    layer1 = _layer1_extract(cleaned_text, reference_date, is_reply, clean_subject,
+                              email_due, eod_fallback)
 
     # ------------------------------------------------------------------
     # Layer 2 — NLP sentence-level scoring
     # ------------------------------------------------------------------
-    layer2 = _layer2_nlp(cleaned_text, reference_date, clean_subject)
+    layer2 = _layer2_nlp(cleaned_text, reference_date, clean_subject,
+                          email_due, eod_fallback)
 
     # Merge: deduplicate by first 40 chars of lowercased name
     seen: set[str] = set()
@@ -208,6 +216,13 @@ def extract_events(
     return merged
 
 
+def _eod(reference_date: Optional[datetime]) -> Optional[datetime]:
+    """Return reference date at 11:59 PM, or None if no reference."""
+    if not reference_date:
+        return None
+    return reference_date.replace(hour=23, minute=59, second=0, microsecond=0)
+
+
 # ---------------------------------------------------------------------------
 # Layer 1 — whole-email regex heuristics (original logic)
 # ---------------------------------------------------------------------------
@@ -217,12 +232,14 @@ def _layer1_extract(
     reference_date: Optional[datetime],
     is_reply: bool,
     clean_subject: Optional[str],
+    email_due: Optional[datetime],
+    eod_fallback: Optional[datetime],
 ) -> list[ExtractionResult]:
     # Reply emails: extract when a due date is present
     if is_reply:
         if not clean_subject:
             return []
-        due_at = extract_due_date(cleaned_text, reference=reference_date)
+        due_at = email_due or eod_fallback
         if not due_at:
             return []
         event_type, confidence = _determine_event_type(cleaned_text)
@@ -237,7 +254,7 @@ def _layer1_extract(
         )]
 
     # Non-reply: every thread is an assignment
-    due_at = extract_due_date(cleaned_text, reference=reference_date)
+    due_at = email_due
 
     _is_dailies = bool(clean_subject and re.match(r"^dailies?", clean_subject, re.IGNORECASE))
     if due_at is None and _is_dailies:
@@ -257,6 +274,10 @@ def _layer1_extract(
     )
     if due_at is None and is_punishment and reference_date:
         due_at = parse_date("11:59 PM", reference_date=reference_date)
+
+    # Final fallback: use EOD of the email's received date
+    if due_at is None:
+        due_at = eod_fallback
 
     name = clean_subject if _is_dailies else (_extract_task_name(cleaned_text) or clean_subject)
     if not name:
@@ -284,18 +305,19 @@ def _layer2_nlp(
     text: str,
     reference_date: Optional[datetime],
     clean_subject: Optional[str],
+    email_due: Optional[datetime],
+    eod_fallback: Optional[datetime],
 ) -> list[ExtractionResult]:
     """
     Split text into sentences. For each sentence, compute a keyword score:
-      +3  time expression detected
+      +3  time expression detected in the sentence itself
       +2  action/imperative verb detected
       +1  assignment keyword (need, must, required, due…)
 
-    Score >= 4 (time + action at minimum) → extract as a separate assignment.
-    Name is derived from the sentence itself (stripped of due-date clause and
-    filler words). Falls back to subject if name is too short.
+    Score >= 2 (just action verb) qualifies as a candidate.
+    Due date priority: sentence's own date → email-wide date → EOD fallback.
+    This ensures every extracted assignment has a date.
     """
-    # Split on sentence-ending punctuation or blank lines
     sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
 
     results: list[ExtractionResult] = []
@@ -303,7 +325,6 @@ def _layer2_nlp(
 
     for sent in sentences:
         sent = sent.strip()
-        # Minimum length and skip boilerplate lines
         if len(sent) < 12 or _SKIP_LINE.match(sent):
             continue
 
@@ -324,11 +345,12 @@ def _layer2_nlp(
         if has_assignment_kw:
             score += 1
 
-        # Need at least time + action to qualify
-        if score < 5:
+        # Minimum: must have an action verb
+        if score < 2 or not has_action:
             continue
 
-        due_at = extract_due_date(sent, reference=reference_date)
+        # Due date: sentence → email-wide → EOD fallback
+        due_at = extract_due_date(sent, reference=reference_date) or email_due or eod_fallback
         if not due_at:
             continue
 
@@ -345,7 +367,8 @@ def _layer2_nlp(
         event_type, confidence = _determine_event_type(sent)
         if event_type == "unknown":
             event_type = "assigned"
-            confidence = 0.65 + (0.05 * min(score - 5, 3))  # scale with score
+            # Higher score = higher confidence
+            confidence = min(0.5 + 0.07 * score, 0.85)
 
         results.append(ExtractionResult(
             event_type=event_type,
