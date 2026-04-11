@@ -73,7 +73,10 @@ def _apply_event(assignment: Assignment, event: AssignmentEvent) -> None:
     elif event.event_type == "reminder":
         if event.parsed_due_at:
             assignment.due_at = event.parsed_due_at
-        _append_note(assignment, "Reminder sent")
+        if assignment.status in ("unknown", None):
+            assignment.status = "active"
+        if assignment.assigned_at is None:
+            assignment.assigned_at = event.created_at
 
     elif event.event_type == "punishment":
         if event.parsed_due_at:

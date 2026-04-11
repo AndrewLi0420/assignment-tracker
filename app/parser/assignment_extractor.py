@@ -163,21 +163,25 @@ def extract_events(
         return []
 
     # ------------------------------------------------------------------
-    # Reply emails: only care about explicit deadline extensions
+    # Reply emails: extract when a due date is present (e.g. "Due saturday
+    # eod", "by 10am tmrw", "due 3:52") — subject gives the assignment name.
     # ------------------------------------------------------------------
     if is_reply:
+        if not clean_subject:
+            return []
+        due_at = extract_due_date(cleaned_text, reference=reference_date)
+        if not due_at:
+            return []
         event_type, confidence = _determine_event_type(cleaned_text)
-        if event_type == "due_date_changed":
-            due_at = extract_due_date(cleaned_text, reference=reference_date)
-            if due_at and clean_subject:
-                return [ExtractionResult(
-                    event_type="due_date_changed",
-                    assignment_name=_censor_profanity(clean_subject),
-                    raw_excerpt=cleaned_text[:500],
-                    parsed_due_at=due_at,
-                    confidence=confidence,
-                )]
-        return []
+        if event_type not in ("due_date_changed", "overdue", "punishment", "reminder"):
+            event_type = "reminder"
+        return [ExtractionResult(
+            event_type=event_type,
+            assignment_name=_censor_profanity(clean_subject),
+            raw_excerpt=cleaned_text[:500],
+            parsed_due_at=due_at,
+            confidence=confidence,
+        )]
 
     # ------------------------------------------------------------------
     # Original (non-reply) emails: every new thread is an assignment
