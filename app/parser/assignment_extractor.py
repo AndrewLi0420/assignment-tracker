@@ -9,11 +9,13 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Core rule: every non-reply email is an assignment.
-# Name comes from the body (or subject). Time in body = due date.
+# Two-layer extraction:
+#   Layer 1 (regex)  — whole-email heuristics (existing logic)
+#   Layer 2 (NLP)    — sentence-level keyword scoring, emits one result per
+#                      assignment sentence; merges with Layer 1 output.
 # ---------------------------------------------------------------------------
 
-# ---- Event type keyword patterns ----
+# ---- Layer 1: event type keyword patterns ----
 EVENT_PATTERNS = {
     "overdue": re.compile(
         r"\b(overdue|past due|missed|late submission|missed deadline)\b", re.IGNORECASE
@@ -36,16 +38,32 @@ EVENT_PATTERNS = {
     ),
 }
 
-# ---- Due date patterns (most → least specific) ----
+# ---- Layer 2: NLP — imperative / action-verb signal ----
+# These are action words that, combined with a time expression in the same
+# sentence, strongly indicate an assignment.
+_ACTION = re.compile(
+    r"\b("
+    # core imperatives
+    r"do|complete|finish|submit|send|bring|get(?:\s+done)?|make|write|record|"
+    r"take|film|shoot|upload|post|create|build|run|draw|read|watch|listen|"
+    r"attend|show(?:\s+up)?|join|present|perform|deliver|produce|prepare|"
+    r"practice|study|memorize|review|edit|update|sign|fill(?:\s+out)?|forward|share|"
+    r"respond|reply|dm|message|call|text|buy|"
+    # modal / directive phrases (treated as action signals)
+    r"need(?:\s+you)?\s+to|must|have\s+to|got\s+to|required\s+to|"
+    r"want(?:\s+you)?\s+to|needs?\s+to\s+be|should(?:\s+be)?|"
+    r"recreate|include|explain|describe|rank|list|count|calculate|"
+    r"add|redo|redo|resubmit|refilm|redo"
+    r")\b",
+    re.IGNORECASE,
+)
 
-# "due by/at/on X", "deadline X", "submit by X", "turn in by X"
+# ---- Due date patterns (most → least specific) ----
 _DUE_CONTEXT = re.compile(
     r"(?:due|deadline|submit by|turn in by|in by|completed? by)\s*(?:by|on|at|:)?\s*"
     r"([A-Za-z0-9,: ]+(?:AM|PM|am|pm|EOD|eod|sharp|night|tonight|tmrw)?)",
     re.IGNORECASE,
 )
-
-# "by 9:40 am", "by EOD", "by midnight", "by Friday at 9pm", "by April 15"
 _BY_TIME = re.compile(
     r"\bby\s+("
     r"\d{1,2}(?::\d{2})?\s*(?:am|pm)(?:\s+sharp)?"
@@ -60,20 +78,14 @@ _BY_TIME = re.compile(
     r")",
     re.IGNORECASE,
 )
-
-# "at 9:40 PM", "at 11:59 pm sharp"
 _AT_TIME = re.compile(
     r"\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)(?:\s+sharp)?)\b",
     re.IGNORECASE,
 )
-
-# "tonight at 9pm", "today by 10pm", "tonight 11:59 PM"
 _TONIGHT_TIME = re.compile(
     r"\b(?:tonight|today)\s+(?:at\s+|by\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b",
     re.IGNORECASE,
 )
-
-# "Monday at 9pm", "Friday 11:59 PM", "April 15 at 5pm"
 _DAY_TIME = re.compile(
     r"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+"
     r"(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)"
@@ -96,6 +108,8 @@ _NORMALIZATIONS = [
     (re.compile(r'\basap\b', re.IGNORECASE), 'today 11:59 PM'),
     (re.compile(r'\bsharp\b', re.IGNORECASE), ''),
     (re.compile(r'\bmidnight\b', re.IGNORECASE), '11:59 PM'),
+    (re.compile(r'\bend of (the )?weekend\b', re.IGNORECASE), 'Sunday 11:59 PM'),
+    (re.compile(r'\bend of (the )?night\b', re.IGNORECASE), '11:59 PM'),
 ]
 
 # Profanity: replace with ****
@@ -107,7 +121,7 @@ _PROFANITY = re.compile(
     re.IGNORECASE,
 )
 
-# Lines that are automated Google-Groups boilerplate — skip the whole email
+# Automated / system email subjects → skip entire email
 _AUTO_SUBJECT = re.compile(
     r"^(you(r| have)?'?re? (subscribed|added|removed|invited)|"
     r"unsubscribe|delivery (failure|error)|bounce|out of office|"
@@ -116,11 +130,19 @@ _AUTO_SUBJECT = re.compile(
     re.IGNORECASE,
 )
 
-# Lines that are greetings / signatures — skip when extracting task name
+# Greeting / signature lines → skip when extracting task name
 _SKIP_LINE = re.compile(
     r"^(mr\.|mrs\.|ms\.|dr\.|dear|hello|hi\b|hey|greetings|pledges?|brothers?|everyone|"
     r"apolog|sorry|understood|sincerely|best,|regards|thank|thanks|—|--|unsubscribe|"
-    r"university of|berkeley|b\.a\.|b\.s\.|\(\d{3}\))",
+    r"university of|berkeley|b\.a\.|b\.s\.|\(\d{3}\)|\*)",
+    re.IGNORECASE,
+)
+
+# Sentence openers that are filler, not part of the task name
+_NAME_FILLER = re.compile(
+    r"^(please|pls|kindly|just|also|so|now|furthermore|additionally|"
+    r"(you\s+)?(need|must|have|got)\s+to|i\s+(want|need)(\s+you)?\s+to|"
+    r"make\s+sure(\s+to)?|go\s+ahead\s+and|remember\s+to)\s+",
     re.IGNORECASE,
 )
 
@@ -145,12 +167,11 @@ def extract_events(
     subject: Optional[str] = None,
 ) -> list[ExtractionResult]:
     """
-    Extract assignment events from a cleaned email body.
-
-    Rule:
-    - Non-reply emails: ALWAYS an assignment (new thread = new task).
-      Time in body gives the due date; if absent, due_at is None.
-    - Reply emails: only processed when they signal a deadline extension.
+    Two-layer extraction:
+      Layer 1 — whole-email regex heuristics (original logic, kept intact).
+      Layer 2 — sentence-level NLP keyword scoring to catch multiple
+                assignments within a single email.
+    Results are merged and deduplicated by normalized name.
     """
     if not cleaned_text.strip():
         return []
@@ -158,14 +179,46 @@ def extract_events(
     is_reply = bool(subject and re.match(r"^(Re|Fwd|FW|RE|FWD)[\s:]", subject.strip()))
     clean_subject = re.sub(r"^(Re|Fwd|FW|RE|FWD)[\s:]+", "", subject or "", flags=re.IGNORECASE).strip() or None
 
-    # Skip automated / system emails
     if clean_subject and _AUTO_SUBJECT.search(clean_subject):
         return []
 
     # ------------------------------------------------------------------
-    # Reply emails: extract when a due date is present (e.g. "Due saturday
-    # eod", "by 10am tmrw", "due 3:52") — subject gives the assignment name.
+    # Layer 1 — existing whole-email regex logic (unchanged)
     # ------------------------------------------------------------------
+    layer1 = _layer1_extract(cleaned_text, reference_date, is_reply, clean_subject)
+
+    # ------------------------------------------------------------------
+    # Layer 2 — NLP sentence-level scoring
+    # ------------------------------------------------------------------
+    layer2 = _layer2_nlp(cleaned_text, reference_date, clean_subject)
+
+    # Merge: deduplicate by first 40 chars of lowercased name
+    seen: set[str] = set()
+    merged: list[ExtractionResult] = []
+
+    for result in layer1 + layer2:
+        if not result.assignment_name:
+            continue
+        key = re.sub(r"\W+", "", result.assignment_name.lower())[:40]
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(result)
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# Layer 1 — whole-email regex heuristics (original logic)
+# ---------------------------------------------------------------------------
+
+def _layer1_extract(
+    cleaned_text: str,
+    reference_date: Optional[datetime],
+    is_reply: bool,
+    clean_subject: Optional[str],
+) -> list[ExtractionResult]:
+    # Reply emails: extract when a due date is present
     if is_reply:
         if not clean_subject:
             return []
@@ -183,41 +236,33 @@ def extract_events(
             confidence=confidence,
         )]
 
-    # ------------------------------------------------------------------
-    # Original (non-reply) emails: every new thread is an assignment
-    # ------------------------------------------------------------------
+    # Non-reply: every thread is an assignment
     due_at = extract_due_date(cleaned_text, reference=reference_date)
 
-    # Special case: "Dailies MM/DD" — tasks are in attachments so body has no
-    # time. Build the due datetime directly from the subject date to avoid
-    # dateparser jumping to next year for past dates.
     _is_dailies = bool(clean_subject and re.match(r"^dailies?", clean_subject, re.IGNORECASE))
     if due_at is None and _is_dailies:
-        dailies_match = re.match(r"^dailies?\s+(\d{1,2})/(\d{1,2})", clean_subject, re.IGNORECASE)
-        if dailies_match:
+        m = re.match(r"^dailies?\s+(\d{1,2})/(\d{1,2})", clean_subject, re.IGNORECASE)
+        if m:
             try:
                 ref = reference_date or datetime.utcnow()
-                month, day = int(dailies_match.group(1)), int(dailies_match.group(2))
-                due_at = ref.replace(month=month, day=day, hour=23, minute=59, second=0, microsecond=0)
+                due_at = ref.replace(month=int(m.group(1)), day=int(m.group(2)),
+                                     hour=23, minute=59, second=0, microsecond=0)
             except (ValueError, AttributeError):
                 pass
 
-    # Punishment emails: use reference date EOD if no explicit time
     event_type, confidence = _determine_event_type(cleaned_text)
     is_punishment = event_type == "punishment" or bool(
-        clean_subject and re.search(r"\b(punishment|penalty|apolog|rizz|date pledge)\b", clean_subject, re.IGNORECASE)
+        clean_subject and re.search(r"\b(punishment|penalty|apolog|rizz|date pledge)\b",
+                                    clean_subject, re.IGNORECASE)
     )
     if due_at is None and is_punishment and reference_date:
-        from app.utils.dates import parse_date as _pd
-        due_at = _pd("11:59 PM", reference_date=reference_date)
+        due_at = parse_date("11:59 PM", reference_date=reference_date)
 
-    # For Dailies, use subject as name; for others use body then fall back to subject
     name = clean_subject if _is_dailies else (_extract_task_name(cleaned_text) or clean_subject)
     if not name:
         return []
 
     name = _censor_profanity(name)
-
     if event_type == "unknown":
         event_type = "punishment" if is_punishment else "assigned"
         confidence = 0.6
@@ -226,55 +271,157 @@ def extract_events(
         event_type=event_type,
         assignment_name=name,
         raw_excerpt=cleaned_text[:500],
-        parsed_due_at=due_at,  # None is OK — due date not always stated
+        parsed_due_at=due_at,
         confidence=confidence,
     )]
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Layer 2 — NLP sentence-level keyword scoring
+# ---------------------------------------------------------------------------
+
+def _layer2_nlp(
+    text: str,
+    reference_date: Optional[datetime],
+    clean_subject: Optional[str],
+) -> list[ExtractionResult]:
+    """
+    Split text into sentences. For each sentence, compute a keyword score:
+      +3  time expression detected
+      +2  action/imperative verb detected
+      +1  assignment keyword (need, must, required, due…)
+
+    Score >= 4 (time + action at minimum) → extract as a separate assignment.
+    Name is derived from the sentence itself (stripped of due-date clause and
+    filler words). Falls back to subject if name is too short.
+    """
+    # Split on sentence-ending punctuation or blank lines
+    sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
+
+    results: list[ExtractionResult] = []
+    seen_keys: set[str] = set()
+
+    for sent in sentences:
+        sent = sent.strip()
+        # Minimum length and skip boilerplate lines
+        if len(sent) < 12 or _SKIP_LINE.match(sent):
+            continue
+
+        # --- Score this sentence ---
+        score = 0
+        has_time = bool(
+            _DUE_CONTEXT.search(sent) or _BY_TIME.search(sent) or
+            _TONIGHT_TIME.search(sent) or _AT_TIME.search(sent) or
+            _DAY_TIME.search(sent)
+        )
+        has_action = bool(_ACTION.search(sent))
+        has_assignment_kw = bool(EVENT_PATTERNS["assigned"].search(sent))
+
+        if has_time:
+            score += 3
+        if has_action:
+            score += 2
+        if has_assignment_kw:
+            score += 1
+
+        # Need at least time + action to qualify
+        if score < 5:
+            continue
+
+        due_at = extract_due_date(sent, reference=reference_date)
+        if not due_at:
+            continue
+
+        name = _sentence_to_name(sent, clean_subject)
+        if not name:
+            continue
+        name = _censor_profanity(name)
+
+        key = re.sub(r"\W+", "", name.lower())[:40]
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        event_type, confidence = _determine_event_type(sent)
+        if event_type == "unknown":
+            event_type = "assigned"
+            confidence = 0.65 + (0.05 * min(score - 5, 3))  # scale with score
+
+        results.append(ExtractionResult(
+            event_type=event_type,
+            assignment_name=name,
+            raw_excerpt=sent[:300],
+            parsed_due_at=due_at,
+            confidence=round(confidence, 2),
+        ))
+
+    return results
+
+
+def _sentence_to_name(sentence: str, subject: Optional[str] = None) -> Optional[str]:
+    """
+    Derive a concise task name from an assignment sentence.
+    1. Strip leading filler ("You need to", "Please", etc.)
+    2. Strip trailing due-date clause ("by Friday at midnight")
+    3. Truncate to 80 chars
+    """
+    s = sentence.strip()
+
+    # Remove leading filler phrases
+    s = _NAME_FILLER.sub("", s).strip()
+
+    # Split off trailing due-date clause
+    s = re.split(
+        r"\s+(?:by|due|before|no\s+later\s+than|until|till)\s+"
+        r"(?:the\s+)?(?:end\s+of\s+)?(?:tonight|today|tomorrow|monday|tuesday|wednesday|"
+        r"thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm)|eod|midnight)",
+        s, maxsplit=1, flags=re.IGNORECASE
+    )[0].strip()
+
+    # Remove trailing punctuation
+    s = s.rstrip(".,;:!? ")
+
+    if len(s) < 5:
+        return subject  # fall back to thread subject
+    return s[:80]
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 def extract_due_date(text: str, reference: Optional[datetime] = None) -> Optional[datetime]:
-    """
-    Return the first parseable time/date expression from the text.
-    Tries patterns from most to least specific.
-    """
+    """Return the first parseable time/date expression from the text."""
     def _try(candidate: str) -> Optional[datetime]:
         candidate = _preprocess(candidate.strip()[:80])
         if not candidate:
             return None
         return parse_date(candidate, reference_date=reference)
 
-    # 1. Explicit due/deadline context
     m = _DUE_CONTEXT.search(text)
     if m:
         result = _try(_trim(m.group(1)))
         if result:
             return result
 
-    # 2. "by <time/day/date>"
     m = _BY_TIME.search(text)
     if m:
         result = _try(m.group(1))
         if result:
             return result
 
-    # 3. "tonight/today at Xpm"
     m = _TONIGHT_TIME.search(text)
     if m:
         result = _try(m.group(1))
         if result:
             return result
 
-    # 4. "at Xpm"
     m = _AT_TIME.search(text)
     if m:
         result = _try(m.group(1))
         if result:
             return result
 
-    # 5. Day-of-week or month + time
     for candidate in _DAY_TIME.findall(text):
         result = _try(candidate)
         if result:
@@ -284,15 +431,11 @@ def extract_due_date(text: str, reference: Optional[datetime] = None) -> Optiona
 
 
 def _extract_task_name(text: str) -> Optional[str]:
-    """
-    Return the first meaningful instructional line from the email body.
-    Skips greetings, signatures, and boilerplate lines.
-    """
+    """Return the first meaningful instructional line from the email body."""
     lines = [l.strip() for l in text.splitlines() if l.strip() and len(l.strip()) > 6]
     for line in lines[:10]:
         if _SKIP_LINE.match(line):
             continue
-        # Strip trailing email-signature noise
         line = re.split(r"\s*\||\s{3,}", line)[0].strip()
         if len(line) > 6:
             return line[:120]
@@ -313,7 +456,6 @@ def _determine_event_type(text: str) -> tuple[str, float]:
 
 
 def _censor_profanity(text: str) -> str:
-    """Replace profane words with ****."""
     return _PROFANITY.sub("****", text).strip()
 
 
@@ -324,6 +466,8 @@ def _preprocess(text: str) -> str:
 
 
 def _trim(candidate: str) -> str:
-    """Remove trailing words that bleed past the date expression."""
-    candidate = re.split(r'\s+\b(?:with|if|and|but|so|or|unless|when|while|for|from|as)\b', candidate, maxsplit=1)[0]
+    candidate = re.split(
+        r'\s+\b(?:with|if|and|but|so|or|unless|when|while|for|from|as)\b',
+        candidate, maxsplit=1
+    )[0]
     return candidate.strip()[:60]
