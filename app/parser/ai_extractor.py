@@ -1,9 +1,10 @@
 """
-Use Claude to extract individual assignments from email bodies.
-Falls back to regex extractor if the API key is missing or the call fails.
+Use OpenAI to extract individual assignments from email bodies.
+Falls back to regex extractor if OPENAI_API_KEY is missing or the call fails.
 """
 import json
 import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -37,7 +38,7 @@ def extract_events(
     reference_date: Optional[datetime] = None,
     subject: Optional[str] = None,
 ) -> list[ExtractionResult]:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return regex_extract_events(cleaned_text, reference_date=reference_date, subject=subject)
 
@@ -54,41 +55,46 @@ def _ai_extract(
     subject: Optional[str],
     api_key: str,
 ) -> list[ExtractionResult]:
-    import anthropic
+    from openai import OpenAI
     from app.utils.dates import parse_date
 
-    # Skip automated / empty emails early
     if not cleaned_text.strip():
         return []
 
     clean_subject = subject or ""
-    import re
     if re.match(r"^(Re|Fwd|FW|RE|FWD)[\s:]", clean_subject.strip()):
         clean_subject = re.sub(r"^(Re|Fwd|FW|RE|FWD)[\s:]+", "", clean_subject, flags=re.IGNORECASE).strip()
 
-    ref_str = reference_date.strftime("%A %B %d %Y %I:%M %p") if reference_date else datetime.utcnow().strftime("%A %B %d %Y %I:%M %p")
+    ref_str = (
+        reference_date.strftime("%A %B %d %Y %I:%M %p")
+        if reference_date
+        else datetime.utcnow().strftime("%A %B %d %Y %I:%M %p")
+    )
 
     user_msg = f"""Thread subject: {clean_subject or '(none)'}
 Email received: {ref_str}
 ---
 {cleaned_text[:1500]}"""
 
-    client = anthropic.Anthropic(api_key=api_key)
-    resp = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    client = OpenAI(api_key=api_key)
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user", "content": user_msg},
+        ],
         max_tokens=512,
-        system=_SYSTEM,
-        messages=[{"role": "user", "content": user_msg}],
+        temperature=0,
+        response_format={"type": "json_object"},
     )
 
-    raw = resp.content[0].text.strip()
-    # Strip markdown fences if present
-    raw = re.sub(r"^```[a-z]*\n?", "", raw)
-    raw = re.sub(r"\n?```$", "", raw)
-
-    items = json.loads(raw)
-    if not isinstance(items, list):
-        return []
+    raw = resp.choices[0].message.content.strip()
+    parsed = json.loads(raw)
+    # gpt-4o-mini with json_object mode wraps in an object — unwrap
+    if isinstance(parsed, dict):
+        items = next((v for v in parsed.values() if isinstance(v, list)), [])
+    else:
+        items = parsed
 
     results = []
     for item in items:
