@@ -5,7 +5,7 @@ from app.config import config
 from app.gmail_client import get_gmail_service, list_new_message_ids, fetch_message
 from app.models import EmailMessage, AssignmentEvent
 from app.parser.email_cleaner import clean_new_message_text
-from app.parser.assignment_extractor import extract_events
+from app.parser.ai_extractor import extract_events
 from app.parser.resolver import resolve_assignment, refresh_statuses
 from app.utils.logging import get_logger
 

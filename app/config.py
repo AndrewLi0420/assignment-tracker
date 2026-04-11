@@ -14,6 +14,7 @@ class Config:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     # Hard cap on messages fetched per sync (safety limit — covers a full semester)
     MAX_MESSAGES_PER_SYNC: int = int(os.getenv("MAX_MESSAGES_PER_SYNC", "2000"))
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
 
 config = Config()
