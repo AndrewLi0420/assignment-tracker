@@ -150,19 +150,32 @@ async function syncAndRefresh(){
   const btn=document.getElementById('syncBtn');
   btn.disabled=true;
   let totalMessages=0, totalEvents=0, batch=0;
+  const MAX_BATCHES=30;
   try{
-    while(true){
+    while(batch<MAX_BATCHES){
       batch++;
       btn.innerHTML=`<span class="spinner"></span>Syncing batch ${batch}\u2026`;
       document.getElementById('statusText').textContent=`Scanning emails (batch ${batch})\u2026`;
-      const r=await fetch('/sync',{method:'POST'});
+      let r,d;
+      try{
+        const controller=new AbortController();
+        const tid=setTimeout(()=>controller.abort(),25000);
+        r=await fetch('/sync',{method:'POST',signal:controller.signal});
+        clearTimeout(tid);
+      }catch(fe){
+        // timeout or network error on this batch — wait 2s and retry
+        document.getElementById('statusText').textContent=`Batch ${batch} timed out, retrying\u2026`;
+        await new Promise(res=>setTimeout(res,2000));
+        batch--;
+        continue;
+      }
       if(!r.ok){const t=await r.text();throw new Error(t.slice(0,120));}
-      const d=await r.json();
+      d=await r.json();
       if(d.error){document.getElementById('statusText').textContent='Error: '+d.error;break;}
       totalMessages+=d.new_messages??0;
       totalEvents+=d.new_events??0;
       const remaining=d.remaining??0;
-      if(remaining<=0){
+      if(remaining<=0&&(d.new_messages??0)===0){
         document.getElementById('statusText').textContent=`Done \u2014 ${totalMessages} new emails, ${totalEvents} assignments found`;
         break;
       }
@@ -171,6 +184,7 @@ async function syncAndRefresh(){
     await loadReport();
   }catch(e){
     document.getElementById('statusText').textContent='Sync failed: '+e.message;
+    await loadReport();
   }
   btn.disabled=false;
   btn.innerHTML='&#x21BB; Sync &amp; Refresh';
