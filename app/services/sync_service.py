@@ -77,6 +77,14 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
             events = []
 
         for ev in events:
+            # Hard safety net: every assignment must have a due date.
+            # If extraction found no date, use the email's received-at EOD.
+            due_at = ev.parsed_due_at
+            if due_at is None:
+                due_at = reference_date.replace(
+                    hour=23, minute=59, second=0, microsecond=0
+                )
+
             event_row = AssignmentEvent(
                 gmail_message_id=message_id,
                 gmail_thread_id=msg_data["gmail_thread_id"],
@@ -84,7 +92,7 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
                 course=ev.course,
                 assignment_name=ev.assignment_name,
                 raw_excerpt=ev.raw_excerpt,
-                parsed_due_at=ev.parsed_due_at,
+                parsed_due_at=due_at,
                 confidence=ev.confidence,
                 created_at=reference_date,  # email receive time, not processing time
             )
