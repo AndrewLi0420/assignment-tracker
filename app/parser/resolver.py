@@ -110,14 +110,15 @@ def refresh_statuses(db: Session) -> None:
 
     assignments = db.query(Assignment).all()
     for a in assignments:
+        # Fill missing due_at first, before any status-based early-continues
+        if a.due_at is None:
+            fallback_base = a.first_seen_at or now
+            a.due_at = fallback_base.replace(hour=23, minute=59, second=0, microsecond=0)
+
         if a.status == "overdue":
             continue  # Don't downgrade explicit overdue flags
         if a.due_at is None:
-            # Last-resort: fill in EOD of when the assignment was first seen
-            if a.first_seen_at:
-                a.due_at = a.first_seen_at.replace(hour=23, minute=59, second=0, microsecond=0)
-            if a.due_at is None:
-                continue
+            continue
         if a.due_at < now:
             a.status = "overdue"
         elif a.due_at <= due_soon_threshold:
