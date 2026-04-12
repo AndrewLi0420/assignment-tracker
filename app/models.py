@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Text, Float, DateTime, Integer
+from sqlalchemy import String, Text, Float, DateTime, Integer, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
@@ -44,6 +44,7 @@ class Assignment(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     assigned_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     due_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    due_at_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     status: Mapped[str] = mapped_column(String(50), default="active")  # active, due_soon, overdue, unknown
     source_thread_id: Mapped[str] = mapped_column(String(255), nullable=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)

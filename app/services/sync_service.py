@@ -78,8 +78,9 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
 
         for ev in events:
             # Hard safety net: every assignment must have a due date.
-            # If extraction found no date, use the email's received-at EOD.
+            # If extraction found no date, use the email's received-at EOD (estimated).
             due_at = ev.parsed_due_at
+            due_at_estimated = due_at is None
             if due_at is None:
                 due_at = reference_date.replace(
                     hour=23, minute=59, second=0, microsecond=0
@@ -101,7 +102,7 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
 
             # Resolve into canonical assignment
             try:
-                resolve_assignment(db, event_row)
+                resolve_assignment(db, event_row, due_at_estimated=due_at_estimated)
                 new_event_count += 1
             except Exception as e:
                 logger.error("Resolve failed for event from %s: %s", message_id, e)
