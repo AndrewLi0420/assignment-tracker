@@ -113,7 +113,11 @@ def refresh_statuses(db: Session) -> None:
         if a.status == "overdue":
             continue  # Don't downgrade explicit overdue flags
         if a.due_at is None:
-            continue
+            # Last-resort: fill in EOD of when the assignment was first seen
+            if a.first_seen_at:
+                a.due_at = a.first_seen_at.replace(hour=23, minute=59, second=0, microsecond=0)
+            if a.due_at is None:
+                continue
         if a.due_at < now:
             a.status = "overdue"
         elif a.due_at <= due_soon_threshold:
