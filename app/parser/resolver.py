@@ -3,9 +3,17 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from app.models import Assignment, AssignmentEvent
+from app.models import Assignment, AssignmentEvent, EmailMessage
 from app.parser.normalizer import make_normalized_key, normalize_assignment_name
 from app.utils.logging import get_logger
+
+# Patterns that indicate the submission was rejected (actives asking for a redo)
+_REJECTION_PATTERNS = re.compile(
+    r"\b(redo|do\s+it\s+again|try\s+again|not\s+acceptable|wrong\s+answer|"
+    r"must\s+be\s+redone|needs?\s+to\s+be\s+redone|incorrect|that.s\s+wrong|"
+    r"resubmit|refilm|redo\s+this|not\s+good\s+enough|rejected)\b",
+    re.IGNORECASE,
+)
 
 logger = get_logger(__name__)
 
@@ -23,6 +31,26 @@ def resolve_completion(db: Session, event: AssignmentEvent) -> list[Assignment]:
     """
     now = datetime.utcnow()
     completed: list[Assignment] = []
+
+    # --- Check for rejection messages posted AFTER this submission in the same thread ---
+    # If actives replied with "redo", "wrong", "not acceptable", etc., the submission was rejected.
+    if event.gmail_thread_id and event.created_at:
+        later_msgs = (
+            db.query(EmailMessage)
+            .filter(
+                EmailMessage.gmail_thread_id == event.gmail_thread_id,
+                EmailMessage.received_at > event.created_at,
+            )
+            .all()
+        )
+        for msg in later_msgs:
+            body = msg.cleaned_body or ""
+            if _REJECTION_PATTERNS.search(body):
+                logger.info(
+                    "Skipping auto-complete for thread %s — rejection message found after submission (%s)",
+                    event.gmail_thread_id, msg.gmail_message_id,
+                )
+                return []
 
     # --- Candidates: same thread ---
     thread_matches = (
@@ -216,6 +244,10 @@ def refresh_statuses(db: Session) -> None:
 
     assignments = db.query(Assignment).all()
     for a in assignments:
+        # Never touch completed assignments — manual or auto completions must persist across syncs
+        if a.status == "completed":
+            continue
+
         # Fill missing due_at with EOD fallback (marks as estimated)
         if a.due_at is None:
             fallback_base = a.first_seen_at or now

@@ -27,8 +27,11 @@ Return ONLY a JSON array. Each element has:
 Rules:
 - Extract EVERY separate task (there can be multiple per email).
 - If a reply/response email shows a pledge SUBMITTING or COMPLETING an assignment
-  (keywords: submitted, sent, attached, here is, done, finished, here's the link/video/photo),
+  (keywords: submitted, sent, attached, here is, done, finished, here's the link/video/photo,
+   OR the email has a file attachment like a PDF/image/video, OR contains a URL/link),
   emit one element with type="completion" and name=the task they completed. Set due=null.
+- A file attachment (PDF, image, video) in a reply email is ALWAYS a submission — mark as completion.
+- A reply containing only a URL/link (e.g. YouTube, Google Drive, Loom) is almost always a submission.
 - If the email is a new thread assigning work, use assigned/punishment/reminder/etc.
 - Strip profanity from names.
 - Do not invent tasks not implied by the email.
@@ -40,16 +43,24 @@ def extract_events(
     cleaned_text: str,
     reference_date: Optional[datetime] = None,
     subject: Optional[str] = None,
+    has_attachment: bool = False,
 ) -> list[ExtractionResult]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return regex_extract_events(cleaned_text, reference_date=reference_date, subject=subject)
+        return regex_extract_events(
+            cleaned_text, reference_date=reference_date, subject=subject, has_attachment=has_attachment
+        )
 
     try:
-        return _ai_extract(cleaned_text, reference_date=reference_date, subject=subject, api_key=api_key)
+        return _ai_extract(
+            cleaned_text, reference_date=reference_date, subject=subject,
+            api_key=api_key, has_attachment=has_attachment,
+        )
     except Exception as e:
         logger.warning("AI extraction failed (%s), falling back to regex", e)
-        return regex_extract_events(cleaned_text, reference_date=reference_date, subject=subject)
+        return regex_extract_events(
+            cleaned_text, reference_date=reference_date, subject=subject, has_attachment=has_attachment
+        )
 
 
 def _ai_extract(
@@ -57,6 +68,7 @@ def _ai_extract(
     reference_date: Optional[datetime],
     subject: Optional[str],
     api_key: str,
+    has_attachment: bool = False,
 ) -> list[ExtractionResult]:
     from openai import OpenAI
     from app.utils.dates import parse_date
@@ -74,8 +86,9 @@ def _ai_extract(
         else datetime.utcnow().strftime("%A %B %d %Y %I:%M %p")
     )
 
+    attachment_note = "\n[NOTE: This email has a FILE ATTACHMENT — treat this as a submission/completion if it is a reply.]" if has_attachment else ""
     user_msg = f"""Thread subject: {clean_subject or '(none)'}
-Email received: {ref_str}
+Email received: {ref_str}{attachment_note}
 ---
 {cleaned_text[:1500]}"""
 

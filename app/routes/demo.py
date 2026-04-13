@@ -32,6 +32,7 @@ main{padding:28px 32px;max-width:860px}
 .stat-card.s-soon .stat-value{color:#f6a031}
 .stat-card.s-overdue .stat-value{color:#e05252}
 .stat-card.s-all .stat-value{color:#7b8cde}
+.stat-card.s-done .stat-value{color:#4caf50}
 
 /* Thread groups */
 .thread-group{margin-bottom:20px;border:1px solid #2a2a40;border-radius:12px;overflow:hidden;background:#13131f}
@@ -89,6 +90,10 @@ main{padding:28px 32px;max-width:860px}
       <div class="stat-label">All Active</div>
       <div class="stat-value" id="countAll">&ndash;</div>
     </div>
+    <div class="stat-card s-done">
+      <div class="stat-label">Completed</div>
+      <div class="stat-value" id="countDone">&ndash;</div>
+    </div>
   </div>
 
   <div id="threadContainer">
@@ -111,15 +116,16 @@ function renderThreads(threads){
     const items=t.assignments||[];
     const title=esc(t.thread_subject||(t.thread_id||'Unknown Thread'));
     const bullets=items.map(a=>{
-      const st=a.status==='overdue'?'overdue':a.status==='due_soon'?'due_soon':'active';
-      const dueLabel=a.due_at_estimated
+      const isDone=a.status==='completed';
+      const st=isDone?'active':a.status==='overdue'?'overdue':a.status==='due_soon'?'due_soon':'active';
+      const dueLabel=isDone?'':(a.due_at_estimated
         ?(a.due_formatted?`~${esc(a.due_formatted)}`:'')
-        :(a.due_formatted?esc(a.due_formatted):'');
+        :(a.due_formatted?esc(a.due_formatted):''));
       const dueCls=a.status==='overdue'?'overdue':a.status==='due_soon'?'due_soon':'';
-      return `<div class="bullet-item" id="row-${a.id}">
-        <button class="done-btn" onclick="toggleDone(${a.id},this)" title="Mark as done">&#10003;</button>
+      return `<div class="bullet-item${isDone?' done':''}" id="row-${a.id}">
+        <button class="done-btn${isDone?' checked':''}" onclick="toggleDone(${a.id},this)" title="${isDone?'Mark as not done':'Mark as done'}">&#10003;</button>
         <div class="bullet-dot ${st}"></div>
-        <div class="bullet-name">${esc(a.name)}</div>
+        <div class="bullet-name${isDone?' done':''}">${esc(a.name)}</div>
         ${dueLabel?`<div class="bullet-due ${dueCls}">${dueLabel}</div>`:''}
       </div>`;
     }).join('');
@@ -155,6 +161,7 @@ async function loadReport(){
     document.getElementById('countSoon').textContent=d.due_soon.length;
     document.getElementById('countOverdue').textContent=d.overdue.length;
     document.getElementById('countAll').textContent=(d.due_soon.length+d.overdue.length+(d.upcoming||[]).length);
+    document.getElementById('countDone').textContent=(d.completed||[]).length;
     renderThreads(d.threads||[]);
     document.getElementById('statusText').textContent='Updated '+d.generated_at;
   }catch(e){

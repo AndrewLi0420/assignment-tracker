@@ -204,6 +204,7 @@ def extract_events(
     cleaned_text: str,
     reference_date: Optional[datetime] = None,
     subject: Optional[str] = None,
+    has_attachment: bool = False,
 ) -> list[ExtractionResult]:
     """
     Two-layer extraction:
@@ -226,9 +227,10 @@ def extract_events(
     # ------------------------------------------------------------------
     # Completion check — replies with strong submission signals
     # Short-circuit: if this is a submission, don't emit new assignment events
+    # A file attachment in a reply is always treated as a submission attempt.
     # ------------------------------------------------------------------
-    if is_reply:
-        completion = _detect_completion(cleaned_text, clean_subject)
+    if is_reply or has_attachment:
+        completion = _detect_completion(cleaned_text, clean_subject, has_attachment=has_attachment)
         if completion:
             return [completion]
 
@@ -304,19 +306,26 @@ def _strip_quoted_reply(text: str) -> str:
     return "\n".join(clean_lines).strip()
 
 
-def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[ExtractionResult]:
+def _detect_completion(
+    text: str,
+    clean_subject: Optional[str],
+    has_attachment: bool = False,
+) -> Optional[ExtractionResult]:
     """
     Detect if a reply email represents a submission/completion of an assignment.
 
     Only the pledge's own words (not quoted chains) are scored.
 
     Scoring:
+      +4  file attachment present (PDF/image/video = almost certainly a submission)
       score from keyword hits (capped at 3)
       +2 URL present  (pledge sending a link/video is the #1 pattern)
+      +2 past-tense proof words (submitted, sent, attached, done, finished, …)
       +1 strong proof word (video, photo, screenshot, etc.)
-      short reply (<120 chars) with any hit → floor score at 2
-      -2 negative pattern (extension request, excuse, question)
+      short reply (<120 chars) with past-tense proof → floor score at 2
+      -3 negative pattern (extension request, excuse, question)
       -2 new-task command in reply (actives assigning extra work)
+      -2 no URL + no past-tense + no attachment (keyword-only is unreliable)
     Threshold: score >= 2
     """
     if not text.strip():
@@ -340,12 +349,16 @@ def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[Extr
 
     score = min(kw_hits, 3)
 
+    # File attachment is the strongest signal — a PDF/image/video in a reply is a submission
+    if has_attachment:
+        score += 4
+
     # URL = very strong signal
     if has_url:
         score += 2
 
     # Proof media words
-    if re.search(r"\b(video|photo|picture|screenshot|selfie|loom|proof)\b", own_text, re.IGNORECASE):
+    if re.search(r"\b(video|photo|picture|screenshot|selfie|loom|proof|pdf|doc)\b", own_text, re.IGNORECASE):
         score += 1
 
     # Past-tense proof words add extra confidence
@@ -355,17 +368,17 @@ def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[Extr
     if len(own_text) < 120 and past_hits >= 1:
         score = max(score, 2)
 
-    # Negatives
+    # Negatives — these are almost never completions
     if _COMPLETION_NEGATIVES.search(own_text):
-        score -= 3  # stronger penalty — these are almost never completions
+        score -= 3
 
     # Actives assigning new work inside a reply
     if re.search(r"\b(?:do|complete|submit|send|finish)\s+\d+|due\s+(?:in\s+)?\d+\s+min", own_text, re.IGNORECASE):
         score -= 2
 
-    # Without a URL, require higher confidence: past-tense proof word or explicit attachment
-    if not has_url and past_hits == 0:
-        score = max(score - 2, 0)  # sharply penalise keyword-only, no-URL, no-past-tense
+    # Without a URL, attachment, or past-tense word, keyword hits alone are unreliable
+    if not has_url and not has_attachment and past_hits == 0:
+        score = max(score - 2, 0)
 
     if score < 2:
         return None

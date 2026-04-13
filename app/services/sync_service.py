@@ -71,7 +71,12 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
         # Extract events from cleaned text
         reference_date = msg_data.get("received_at") or datetime.utcnow()
         try:
-            events = extract_events(cleaned, reference_date=reference_date, subject=msg_data.get("subject"))
+            events = extract_events(
+                cleaned,
+                reference_date=reference_date,
+                subject=msg_data.get("subject"),
+                has_attachment=msg_data.get("has_attachment", False),
+            )
         except Exception as e:
             logger.error("Extraction failed for message %s: %s", message_id, e)
             events = []

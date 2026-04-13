@@ -68,8 +68,16 @@ def generate_report_data(db: Session) -> dict:
     def to_dict(a):
         return _to_dict(a, thread_subjects)
 
-    # Build thread-grouped view across all active + overdue assignments
-    all_assignments = due_soon + overdue + upcoming
+    # All completed assignments (shown with checkmarks in the UI)
+    completed = (
+        db.query(Assignment)
+        .filter(Assignment.status == "completed")
+        .order_by(Assignment.completed_at.desc())
+        .all()
+    )
+
+    # Build thread-grouped view across all active + overdue + completed assignments
+    all_assignments = due_soon + overdue + upcoming + completed
     threads = _group_by_thread(all_assignments, thread_subjects)
 
     return {
@@ -78,6 +86,7 @@ def generate_report_data(db: Session) -> dict:
         "due_soon": [to_dict(a) for a in due_soon],
         "overdue": [to_dict(a) for a in overdue],
         "upcoming": [to_dict(a) for a in upcoming],
+        "completed": [to_dict(a) for a in completed],
         "threads": threads,
     }
 

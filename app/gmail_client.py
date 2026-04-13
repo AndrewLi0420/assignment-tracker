@@ -171,7 +171,9 @@ def fetch_message(service, message_id: str) -> dict:
         except Exception:
             pass
 
-    raw_body = _extract_body(msg.get("payload", {}))
+    payload = msg.get("payload", {})
+    raw_body = _extract_body(payload)
+    has_attachment = _has_attachment(payload)
 
     return {
         "gmail_message_id": message_id,
@@ -180,7 +182,23 @@ def fetch_message(service, message_id: str) -> dict:
         "sender": sender,
         "received_at": received_at,
         "raw_body": raw_body,
+        "has_attachment": has_attachment,
     }
+
+
+def _has_attachment(payload: dict) -> bool:
+    """Return True if the message has any file attachment (PDF, image, video, etc.)."""
+    # A part with a filename and an attachmentId is a real attachment
+    if payload.get("filename") and payload.get("body", {}).get("attachmentId"):
+        return True
+    # Also catch inline images/files that have a filename but no attachmentId
+    mime = payload.get("mimeType", "")
+    if payload.get("filename") and mime.split("/")[0] in ("application", "image", "video", "audio"):
+        return True
+    for part in payload.get("parts", []):
+        if _has_attachment(part):
+            return True
+    return False
 
 
 def _extract_body(payload: dict) -> str:
