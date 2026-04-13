@@ -253,50 +253,74 @@ def extract_events(
     return merged
 
 
+def _strip_quoted_reply(text: str) -> str:
+    """
+    Remove quoted reply chains from email body so only the pledge's own words
+    are scored for completion detection.
+    Strips:
+      - Lines starting with ">" (standard quote marker)
+      - Everything after "On ... wrote:" (Gmail reply header)
+      - Everything after "---------- Forwarded message ---------"
+    """
+    # Remove Gmail forward/reply header and everything below it
+    text = re.split(
+        r"\n[-—]+\s*(?:Forwarded|Original)\s+(?:message|email)[-—\s]*\n",
+        text, maxsplit=1, flags=re.IGNORECASE
+    )[0]
+    text = re.split(
+        r"\nOn\s+.{5,60}wrote:\s*\n",
+        text, maxsplit=1, flags=re.IGNORECASE
+    )[0]
+    # Remove individual ">"-quoted lines
+    lines = [ln for ln in text.splitlines() if not ln.strip().startswith(">")]
+    return "\n".join(lines).strip()
+
+
 def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[ExtractionResult]:
     """
     Detect if a reply email represents a submission/completion of an assignment.
 
+    Only the pledge's own words (not quoted chains) are scored.
+
     Scoring:
-      +1 per completion keyword hit (max 3 counted)
-      -2 if negative pattern (extension request, question, excuse) found
-    Confidence threshold: score >= 2
+      score from keyword hits (capped at 3)
+      +2 URL present  (pledge sending a link/video is the #1 pattern)
+      +1 strong proof word (video, photo, screenshot, etc.)
+      short reply (<120 chars) with any hit → floor score at 2
+      -2 negative pattern (extension request, excuse, question)
+      -2 new-task command in reply (actives assigning extra work)
+    Threshold: score >= 2
     """
     if not text.strip():
         return None
 
-    kw_hits = len(_COMPLETION_KW.findall(text))
-    # Cap raw keyword count to avoid flooding score on verbose replies
+    # Only score the pledge's own words, not quoted originals
+    own_text = _strip_quoted_reply(text)
+    if not own_text.strip():
+        return None
+
+    kw_hits = len(_COMPLETION_KW.findall(own_text))
     score = min(kw_hits, 3)
 
-    # URL in a reply body is a very strong submission signal (pledge sending a link/video)
-    has_url = bool(re.search(r"https?://", text))
+    # URL in own text = strong submission signal
+    has_url = bool(re.search(r"https?://", own_text))
     if has_url:
         score += 2
 
-    # Other strong proof words also get a bonus
-    strong_proof = re.search(
-        r"\b(link|video|screenshot|photo|picture|selfie|loom|proof|drive\.google)\b",
-        text, re.IGNORECASE,
-    )
-    if strong_proof:
+    # Proof media words
+    if re.search(r"\b(video|photo|picture|screenshot|selfie|loom|proof)\b", own_text, re.IGNORECASE):
         score += 1
 
-    # Very short replies with any completion signal are almost always submissions
-    if len(text.strip()) < 120 and kw_hits >= 1:
+    # Very short own-text reply with any completion keyword
+    if len(own_text) < 120 and kw_hits >= 1:
         score = max(score, 2)
 
-    # Negative patterns reduce confidence
-    if _COMPLETION_NEGATIVES.search(text):
+    # Negatives: extension requests, questions, excuses
+    if _COMPLETION_NEGATIVES.search(own_text):
         score -= 2
 
-    # New assignment commands inside a reply thread (actives assigning extra work)
-    # "do X pushups due Y" — don't mark as completion
-    new_task_in_reply = re.search(
-        r"\b(?:do|complete|submit|send|finish)\s+\d+|due\s+(?:in\s+)?\d+\s+min",
-        text, re.IGNORECASE,
-    )
-    if new_task_in_reply:
+    # Actives assigning new work inside a reply ("do 15 pushups due in 5 min")
+    if re.search(r"\b(?:do|complete|submit|send|finish)\s+\d+|due\s+(?:in\s+)?\d+\s+min", own_text, re.IGNORECASE):
         score -= 2
 
     if score < 2:
@@ -306,7 +330,7 @@ def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[Extr
     return ExtractionResult(
         event_type="completion",
         assignment_name=clean_subject or "",
-        raw_excerpt=text[:300],
+        raw_excerpt=own_text[:300],
         parsed_due_at=None,
         confidence=round(confidence, 2),
     )

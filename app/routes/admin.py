@@ -67,20 +67,19 @@ def scan_completions(dry_run: bool = True, db: Session = Depends(get_db)):
         if thread_candidates:
             if len(thread_candidates) == 1:
                 matched_names = [thread_candidates[0].assignment_name]
+                completed_ids.add(thread_candidates[0].id)
                 if not dry_run:
                     thread_candidates[0].status = "completed"
                     thread_candidates[0].completed_at = msg.received_at or datetime.utcnow()
-                    completed_ids.add(thread_candidates[0].id)
             else:
-                # Name overlap filter
                 from app.parser.resolver import _name_overlap_filter
                 overlaps = _name_overlap_filter(clean_subject, thread_candidates, min_overlap=2)
                 for a in overlaps:
                     matched_names.append(a.assignment_name)
+                    completed_ids.add(a.id)
                     if not dry_run:
                         a.status = "completed"
                         a.completed_at = msg.received_at or datetime.utcnow()
-                        completed_ids.add(a.id)
 
         detected.append({
             "email_id": msg.id,
