@@ -8,13 +8,12 @@ _HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ListServ Bot</title>
+<title>YaduBot</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d0d14;color:#d4d4e0;min-height:100vh}
 
 header{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);border-bottom:1px solid #2a2a40;padding:16px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
-.logo{display:flex;align-items:center}
 .logo-text h1{font-size:17px;font-weight:700;color:#fff}
 .logo-text p{font-size:11px;color:#5566aa;margin-top:1px}
 .header-right{display:flex;align-items:center;gap:14px}
@@ -24,53 +23,46 @@ header{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);border-bottom:
 .sync-btn:active:not(:disabled){transform:translateY(0)}
 .sync-btn:disabled{opacity:.35;cursor:default;transform:none}
 
-main{padding:28px 32px;max-width:880px}
+main{padding:28px 32px;max-width:860px}
 
 .stats{display:flex;gap:12px;margin-bottom:28px}
 .stat-card{flex:1;background:#1a1a2e;border:1px solid #2a2a40;border-radius:12px;padding:16px 20px}
 .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#5566aa;margin-bottom:6px}
 .stat-value{font-size:30px;font-weight:700;color:#fff}
 .stat-card.s-soon .stat-value{color:#f6a031}
-.stat-card.s-overdue .stat-value{color:#e89030}
+.stat-card.s-overdue .stat-value{color:#e05252}
 .stat-card.s-all .stat-value{color:#7b8cde}
 
-.section{margin-bottom:22px}
-.section-header{display:flex;align-items:center;gap:8px;margin-bottom:9px}
-.dot{width:7px;height:7px;border-radius:50%}
-.dot.soon{background:#f6a031}
-.dot.overdue{background:#e89030}
-.dot.all{background:#7b8cde}
-.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:#8888bb}
+/* Thread groups */
+.thread-group{margin-bottom:20px;border:1px solid #2a2a40;border-radius:12px;overflow:hidden;background:#13131f}
+.thread-header{padding:11px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a40;font-size:12px;font-weight:700;color:#9999cc;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
+.thread-header .pill{font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;background:#2a2a40;color:#7777aa}
+.bullet-list{padding:10px 16px;display:flex;flex-direction:column;gap:4px}
+.bullet-item{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid #1e1e30}
+.bullet-item:last-child{border-bottom:none}
+.bullet-dot{flex-shrink:0;width:6px;height:6px;border-radius:50%;margin-top:5px;background:#44446a}
+.bullet-dot.overdue{background:#e05252}
+.bullet-dot.due_soon{background:#f6a031}
+.bullet-dot.active{background:#5577dd}
+.bullet-name{flex:1;font-size:14px;color:#d8d8ee;line-height:1.4}
+.bullet-due{font-size:11px;white-space:nowrap;color:#55558a;margin-left:8px}
+.bullet-due.overdue{color:#e05252;font-weight:600}
+.bullet-due.due_soon{color:#f6a031;font-weight:500}
 
-.cards{display:flex;flex-direction:column;gap:6px}
-.card{background:#1a1a2e;border:1px solid #2a2a40;border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;transition:border-color .15s}
-.card:hover{border-color:#3a3a58}
-.card.soon{border-left:3px solid #f6a031}
-.card.overdue{border-left:3px solid #e89030}
-.card.all{border-left:3px solid #7b8cde}
-.card-left{flex:1;min-width:0}
-.card-name{font-size:14px;font-weight:600;color:#e0e0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.card-course{font-size:11px;color:#55558a;margin-top:2px}
-.card-due{font-size:12px;color:#66669a;white-space:nowrap;margin-left:16px}
-.card-due.overdue{color:#e89030;font-weight:600}
-.card-due.soon{color:#f6a031}
-.empty{color:#33334a;font-size:13px;font-style:italic;padding:10px 0}
+.empty-state{color:#33334a;font-size:13px;font-style:italic;padding:20px 0 8px}
 
 .spinner{display:inline-block;width:11px;height:11px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin .65s linear infinite;vertical-align:middle;margin-right:5px}
 @keyframes spin{to{transform:rotate(360deg)}}
-
-.skeleton{height:46px;background:#1a1a2e;border-radius:10px;border:1px solid #2a2a40;animation:pulse 1.4s ease-in-out infinite}
+.skeleton{height:80px;background:#1a1a2e;border-radius:12px;border:1px solid #2a2a40;animation:pulse 1.4s ease-in-out infinite;margin-bottom:12px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">
-    <div class="logo-text">
-      <h1>ListServ Bot</h1>
-      <p>Alpha Eta Assignment Tracker</p>
-    </div>
+  <div class="logo-text">
+    <h1>YaduBot</h1>
+    <p>Alpha Eta Assignment Tracker</p>
   </div>
   <div class="header-right">
     <span id="statusText"></span>
@@ -94,37 +86,42 @@ main{padding:28px 32px;max-width:880px}
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-header"><div class="dot soon"></div><div class="section-title">Due Soon &mdash; next 72h</div></div>
-    <div class="cards" id="dueSoon"><div class="skeleton"></div></div>
-  </div>
-
-  <div class="section">
-    <div class="section-header"><div class="dot overdue"></div><div class="section-title">Overdue</div></div>
-    <div class="cards" id="overdue"><div class="skeleton"></div></div>
-  </div>
-
-  <div class="section">
-    <div class="section-header"><div class="dot all"></div><div class="section-title">All Active Assignments</div></div>
-    <div class="cards" id="allActive"><div class="skeleton"></div></div>
+  <div id="threadContainer">
+    <div class="skeleton"></div>
+    <div class="skeleton"></div>
+    <div class="skeleton"></div>
   </div>
 </main>
 
 <script>
-function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''}
+function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''}
 
-function renderCards(id, items, cls){
-  const el=document.getElementById(id);
-  if(!items||!items.length){el.innerHTML='<div class="empty">(none)</div>';return}
-  const icons={overdue:'&#9888; ',soon:'&#9200; ',all:'',new:''};
-  el.innerHTML=items.map(a=>`
-    <div class="card ${cls}">
-      <div class="card-left">
-        <div class="card-name">${esc(a.name)}</div>
-        ${a.course?`<div class="card-course">${esc(a.course)}</div>`:''}
-      </div>
-      ${a.due_formatted?`<div class="card-due ${cls==='new'||cls==='all'?'':cls}">${icons[cls]||''}${esc(a.due_formatted)}</div>`:'<div class="card-due">no date</div>'}
-    </div>`).join('');
+function renderThreads(threads){
+  const el=document.getElementById('threadContainer');
+  if(!threads||!threads.length){
+    el.innerHTML='<div class="empty-state">No active assignments found.</div>';
+    return;
+  }
+  el.innerHTML=threads.map(t=>{
+    const items=t.assignments||[];
+    const title=esc(t.thread_subject||(t.thread_id||'Unknown Thread'));
+    const bullets=items.map(a=>{
+      const st=a.status==='overdue'?'overdue':a.status==='due_soon'?'due_soon':'active';
+      const dueLabel=a.due_at_estimated
+        ?(a.due_formatted?`~${esc(a.due_formatted)}`:'no date set')
+        :(a.due_formatted?esc(a.due_formatted):'');
+      const dueCls=a.status==='overdue'?'overdue':a.status==='due_soon'?'due_soon':'';
+      return `<div class="bullet-item">
+        <div class="bullet-dot ${st}"></div>
+        <div class="bullet-name">${esc(a.name)}</div>
+        ${dueLabel?`<div class="bullet-due ${dueCls}">${dueLabel}</div>`:''}
+      </div>`;
+    }).join('');
+    return `<div class="thread-group">
+      <div class="thread-header">${title}<span class="pill">${items.length}</span></div>
+      <div class="bullet-list">${bullets}</div>
+    </div>`;
+  }).join('');
 }
 
 async function loadReport(){
@@ -132,13 +129,10 @@ async function loadReport(){
     const r=await fetch('/report/json');
     if(!r.ok)throw new Error('HTTP '+r.status);
     const d=await r.json();
-    const allActive=(d.upcoming||[]);
     document.getElementById('countSoon').textContent=d.due_soon.length;
     document.getElementById('countOverdue').textContent=d.overdue.length;
-    document.getElementById('countAll').textContent=allActive.length;
-    renderCards('dueSoon',d.due_soon,'soon');
-    renderCards('overdue',d.overdue,'overdue');
-    renderCards('allActive',allActive,'all');
+    document.getElementById('countAll').textContent=(d.due_soon.length+d.overdue.length+(d.upcoming||[]).length);
+    renderThreads(d.threads||[]);
     document.getElementById('statusText').textContent='Updated '+d.generated_at;
   }catch(e){
     document.getElementById('statusText').textContent='Failed to load';
@@ -149,7 +143,7 @@ async function loadReport(){
 async function syncAndRefresh(){
   const btn=document.getElementById('syncBtn');
   btn.disabled=true;
-  let totalMessages=0, totalEvents=0, batch=0;
+  let totalMessages=0,totalEvents=0,batch=0;
   const MAX_BATCHES=30;
   try{
     while(batch<MAX_BATCHES){
@@ -163,7 +157,6 @@ async function syncAndRefresh(){
         r=await fetch('/sync',{method:'POST',signal:controller.signal});
         clearTimeout(tid);
       }catch(fe){
-        // timeout or network error on this batch — wait 2s and retry
         document.getElementById('statusText').textContent=`Batch ${batch} timed out, retrying\u2026`;
         await new Promise(res=>setTimeout(res,2000));
         batch--;
