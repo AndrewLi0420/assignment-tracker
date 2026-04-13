@@ -44,11 +44,11 @@ _COMPLETION_KW = re.compile(
     r"\b("
     r"submit(?:ted|ting)?|sent|attach(?:ed|ment)?|upload(?:ed)?|post(?:ed)?|"
     r"done\b|finished?|complet(?:ed|ing)?|accomplished?|"
-    r"turned?\s+in|handed?\s+in|check(?:ed)?\s+(?:in|off)|checked?\s+out|"
-    r"here(?:\s+is|\s+are|'s)\b|here\s+you\s+go|"
-    r"confirm(?:ed|ing)?|confirmed\b|verif(?:ied|ying)?|"
-    r"recorded?|filmed?|shot\s+(?:a|the)|took\s+(?:a|the)|"
-    r"link\b|video\b|screenshot\b|photo\b|picture\b|selfie\b|proof\b|loom\b|drive\b"
+    r"turned?\s+in|handed?\s+in|check(?:ed)?\s+(?:in|off)|"
+    r"here\b|here\s+you\s+go|"          # loosened: "here <url>" is the dominant pattern
+    r"confirm(?:ed|ing)?|verif(?:ied|ying)?|"
+    r"recorded?|filmed?|"
+    r"link\b|video\b|screenshot\b|photo\b|picture\b|selfie\b|proof\b|loom\b"
     r")\b",
     re.IGNORECASE,
 )
@@ -269,22 +269,40 @@ def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[Extr
     # Cap raw keyword count to avoid flooding score on verbose replies
     score = min(kw_hits, 3)
 
-    # Attachment/proof words are strong signals — add a bonus
+    # URL in a reply body is a very strong submission signal (pledge sending a link/video)
+    has_url = bool(re.search(r"https?://", text))
+    if has_url:
+        score += 2
+
+    # Other strong proof words also get a bonus
     strong_proof = re.search(
-        r"\b(link|video|screenshot|photo|picture|selfie|loom|drive|attach(?:ed|ment)?|proof)\b",
-        text, re.IGNORECASE
+        r"\b(link|video|screenshot|photo|picture|selfie|loom|proof|drive\.google)\b",
+        text, re.IGNORECASE,
     )
     if strong_proof:
         score += 1
+
+    # Very short replies with any completion signal are almost always submissions
+    if len(text.strip()) < 120 and kw_hits >= 1:
+        score = max(score, 2)
 
     # Negative patterns reduce confidence
     if _COMPLETION_NEGATIVES.search(text):
         score -= 2
 
+    # New assignment commands inside a reply thread (actives assigning extra work)
+    # "do X pushups due Y" — don't mark as completion
+    new_task_in_reply = re.search(
+        r"\b(?:do|complete|submit|send|finish)\s+\d+|due\s+(?:in\s+)?\d+\s+min",
+        text, re.IGNORECASE,
+    )
+    if new_task_in_reply:
+        score -= 2
+
     if score < 2:
         return None
 
-    confidence = min(0.5 + 0.15 * score, 0.92)
+    confidence = min(0.5 + 0.1 * score, 0.95)
     return ExtractionResult(
         event_type="completion",
         assignment_name=clean_subject or "",
