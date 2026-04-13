@@ -56,11 +56,23 @@ _COMPLETION_KW = re.compile(
 # These in the same reply → likely NOT a completion (request, excuse, question)
 _COMPLETION_NEGATIVES = re.compile(
     r"\b("
+    # Extension / excuse requests
     r"extension|more\s+time|extra\s+time|deadline\s+extended?|"
     r"can\s+i|could\s+i|is\s+it\s+ok|may\s+i|"
     r"help(?:ing)?|struggling|confused?|not\s+sure|"
     r"clarif(?:y|ication)|what\s+(?:is|are|do)|when\s+(?:is|are|do|should)|"
-    r"haven'?t|have\s+not|didn'?t|did\s+not|can'?t|cannot|unable"
+    r"haven'?t|have\s+not|didn'?t|did\s+not|can'?t|cannot|unable|"
+    # Future-tense promises — NOT yet completed
+    r"we\s+will\b|i\s+will\b|will\s+(?:make\s+sure|ensure|complete|submit|send|do|get)|"
+    r"going\s+to\b|gonna\b|plan\s+to\b|"
+    # Acknowledgments without proof
+    r"^understood[\.,!]?\s*$|^noted[\.,!]?\s*$|^yes[\.,!\s]*sir|^will\s+do|"
+    # Rejection / redo language (active reviewing a bad submission)
+    r"must\s+be\s+redone|needs?\s+to\s+be\s+redone|redo\s+this|do\s+it\s+again|"
+    r"not\s+acceptable|that\s+(?:is|was)\s+wrong|wrong\s+answer|"
+    # Active giving new commands (not pledges submitting)
+    r"please\s+(?:do|complete|submit|send|film|record)|"
+    r"you\s+(?:must|need\s+to|have\s+to|all\s+need)\b"
     r")\b",
     re.IGNORECASE,
 )
@@ -299,11 +311,20 @@ def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[Extr
     if not own_text.strip():
         return None
 
+    has_url = bool(re.search(r"https?://", own_text))
+
+    # Past-tense / definitive proof words (highest signal — pledge already did it)
+    _PAST_PROOF = re.compile(
+        r"\b(submitted|sent|attached|uploaded|posted|turned\s+in|handed\s+in|"
+        r"confirmed|verified|recorded|filmed|done|finished|completed|accomplished)\b",
+        re.IGNORECASE,
+    )
+    past_hits = len(_PAST_PROOF.findall(own_text))
     kw_hits = len(_COMPLETION_KW.findall(own_text))
+
     score = min(kw_hits, 3)
 
-    # URL in own text = strong submission signal
-    has_url = bool(re.search(r"https?://", own_text))
+    # URL = very strong signal
     if has_url:
         score += 2
 
@@ -311,17 +332,24 @@ def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[Extr
     if re.search(r"\b(video|photo|picture|screenshot|selfie|loom|proof)\b", own_text, re.IGNORECASE):
         score += 1
 
-    # Very short own-text reply with any completion keyword
-    if len(own_text) < 120 and kw_hits >= 1:
+    # Past-tense proof words add extra confidence
+    score += min(past_hits, 2)
+
+    # Very short own-text reply with a definitive past-tense word ("Done.", "Submitted.")
+    if len(own_text) < 120 and past_hits >= 1:
         score = max(score, 2)
 
-    # Negatives: extension requests, questions, excuses
+    # Negatives
     if _COMPLETION_NEGATIVES.search(own_text):
-        score -= 2
+        score -= 3  # stronger penalty — these are almost never completions
 
-    # Actives assigning new work inside a reply ("do 15 pushups due in 5 min")
+    # Actives assigning new work inside a reply
     if re.search(r"\b(?:do|complete|submit|send|finish)\s+\d+|due\s+(?:in\s+)?\d+\s+min", own_text, re.IGNORECASE):
         score -= 2
+
+    # Without a URL, require higher confidence: past-tense proof word or explicit attachment
+    if not has_url and past_hits == 0:
+        score = max(score - 2, 0)  # sharply penalise keyword-only, no-URL, no-past-tense
 
     if score < 2:
         return None
