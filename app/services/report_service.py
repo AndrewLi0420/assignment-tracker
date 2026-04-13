@@ -27,15 +27,18 @@ def generate_report_data(db: Session) -> dict:
 
     thread_subjects = _thread_subject_map(db)
 
+    not_completed = Assignment.status != "completed"
+
     newly_assigned = (
         db.query(Assignment)
-        .filter(Assignment.first_seen_at >= last_24h)
+        .filter(not_completed, Assignment.first_seen_at >= last_24h)
         .order_by(Assignment.first_seen_at)
         .all()
     )
     due_soon = (
         db.query(Assignment)
         .filter(
+            not_completed,
             Assignment.due_at != None,
             Assignment.due_at > now,
             Assignment.due_at <= next_72h,
@@ -54,6 +57,7 @@ def generate_report_data(db: Session) -> dict:
     upcoming = (
         db.query(Assignment)
         .filter(
+            not_completed,
             Assignment.status.in_(["active", "unknown"]),
             ~Assignment.id.in_([a.id for a in due_soon]),
         )
@@ -143,6 +147,7 @@ def _to_dict(a: Assignment, thread_subjects: dict = None) -> dict:
     if thread_subjects and tid in thread_subjects:
         subj = _clean_subject(thread_subjects[tid])
     return {
+        "id": a.id,
         "name": a.assignment_name or "(unknown)",
         "course": a.course,
         "due_at": a.due_at.isoformat() if a.due_at else None,

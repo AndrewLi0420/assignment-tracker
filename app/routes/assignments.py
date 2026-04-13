@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Query
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -41,6 +42,28 @@ def list_messages(limit: int = Query(50, le=500), db: Session = Depends(get_db))
         }
         for m in messages
     ]
+
+
+@router.post("/assignments/{assignment_id}/complete")
+def complete_assignment(assignment_id: int, db: Session = Depends(get_db)):
+    a = db.query(Assignment).filter(Assignment.id == assignment_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    a.status = "completed"
+    a.completed_at = datetime.utcnow()
+    db.commit()
+    return {"id": a.id, "status": "completed"}
+
+
+@router.post("/assignments/{assignment_id}/uncomplete")
+def uncomplete_assignment(assignment_id: int, db: Session = Depends(get_db)):
+    a = db.query(Assignment).filter(Assignment.id == assignment_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    a.status = "active"
+    a.completed_at = None
+    db.commit()
+    return {"id": a.id, "status": "active"}
 
 
 def _serialize_assignment(a: Assignment) -> dict:

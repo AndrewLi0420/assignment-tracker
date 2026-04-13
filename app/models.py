@@ -45,6 +45,7 @@ class Assignment(Base):
     assigned_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     due_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     due_at_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    status: Mapped[str] = mapped_column(String(50), default="active")  # active, due_soon, overdue, unknown
+    status: Mapped[str] = mapped_column(String(50), default="active")  # active, due_soon, overdue, unknown, completed
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     source_thread_id: Mapped[str] = mapped_column(String(255), nullable=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)

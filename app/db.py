@@ -47,6 +47,9 @@ def _run_migrations():
             conn.execute(text(
                 "ALTER TABLE assignments ADD COLUMN IF NOT EXISTS due_at_estimated BOOLEAN DEFAULT FALSE"
             ))
+            conn.execute(text(
+                "ALTER TABLE assignments ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP DEFAULT NULL"
+            ))
             # Fix existing assignments: EOD-fallback assignments marked overdue should revert to active
             conn.execute(text("""
                 UPDATE assignments
