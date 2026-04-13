@@ -22,11 +22,14 @@ You parse emails from a college fraternity pledge program and extract every dist
 Return ONLY a JSON array. Each element has:
   "name"    – short clear task name (under 60 chars, no profanity)
   "due"     – due date/time as a natural language string if stated, otherwise null
-  "type"    – one of: assigned, punishment, reminder, overdue, due_date_changed
+  "type"    – one of: assigned, punishment, reminder, overdue, due_date_changed, completion
 
 Rules:
 - Extract EVERY separate task (there can be multiple per email).
-- If the email is just a submission/response with no new task, return [].
+- If a reply/response email shows a pledge SUBMITTING or COMPLETING an assignment
+  (keywords: submitted, sent, attached, here is, done, finished, here's the link/video/photo),
+  emit one element with type="completion" and name=the task they completed. Set due=null.
+- If the email is a new thread assigning work, use assigned/punishment/reminder/etc.
 - Strip profanity from names.
 - Do not invent tasks not implied by the email.
 - Be concise: "1000 pushups video" not "send a video of you doing 1000 pushups".
@@ -111,7 +114,7 @@ Email received: {ref_str}
                 pass
 
         event_type = item.get("type", "assigned")
-        if event_type not in ("assigned", "punishment", "reminder", "overdue", "due_date_changed"):
+        if event_type not in ("assigned", "punishment", "reminder", "overdue", "due_date_changed", "completion"):
             event_type = "assigned"
 
         results.append(ExtractionResult(

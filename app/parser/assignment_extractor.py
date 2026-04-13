@@ -38,6 +38,33 @@ EVENT_PATTERNS = {
     ),
 }
 
+# ---- Completion/submission detection ----
+# These keywords in a REPLY strongly signal the pledges submitted their assignment.
+_COMPLETION_KW = re.compile(
+    r"\b("
+    r"submit(?:ted|ting)?|sent|attach(?:ed|ment)?|upload(?:ed)?|post(?:ed)?|"
+    r"done\b|finished?|complet(?:ed|ing)?|accomplished?|"
+    r"turned?\s+in|handed?\s+in|check(?:ed)?\s+(?:in|off)|checked?\s+out|"
+    r"here(?:\s+is|\s+are|'s)\b|here\s+you\s+go|"
+    r"confirm(?:ed|ing)?|confirmed\b|verif(?:ied|ying)?|"
+    r"recorded?|filmed?|shot\s+(?:a|the)|took\s+(?:a|the)|"
+    r"link\b|video\b|screenshot\b|photo\b|picture\b|selfie\b|proof\b|loom\b|drive\b"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# These in the same reply → likely NOT a completion (request, excuse, question)
+_COMPLETION_NEGATIVES = re.compile(
+    r"\b("
+    r"extension|more\s+time|extra\s+time|deadline\s+extended?|"
+    r"can\s+i|could\s+i|is\s+it\s+ok|may\s+i|"
+    r"help(?:ing)?|struggling|confused?|not\s+sure|"
+    r"clarif(?:y|ication)|what\s+(?:is|are|do)|when\s+(?:is|are|do|should)|"
+    r"haven'?t|have\s+not|didn'?t|did\s+not|can'?t|cannot|unable"
+    r")\b",
+    re.IGNORECASE,
+)
+
 # ---- Layer 2: NLP — imperative / action-verb signal ----
 # These are action words that, combined with a time expression in the same
 # sentence, strongly indicate an assignment.
@@ -171,6 +198,7 @@ def extract_events(
       Layer 1 — whole-email regex heuristics (original logic, kept intact).
       Layer 2 — sentence-level NLP keyword scoring to catch multiple
                 assignments within a single email.
+      Completion detection — replies with submission signals become completion events.
     Results are merged and deduplicated by normalized name.
     Every result gets a due date: sentence date → email-wide date → EOD fallback.
     """
@@ -182,6 +210,15 @@ def extract_events(
 
     if clean_subject and _AUTO_SUBJECT.search(clean_subject):
         return []
+
+    # ------------------------------------------------------------------
+    # Completion check — replies with strong submission signals
+    # Short-circuit: if this is a submission, don't emit new assignment events
+    # ------------------------------------------------------------------
+    if is_reply:
+        completion = _detect_completion(cleaned_text, clean_subject)
+        if completion:
+            return [completion]
 
     # Compute the email-wide due date once — used as fallback for all results
     email_due = extract_due_date(cleaned_text, reference=reference_date)
@@ -214,6 +251,47 @@ def extract_events(
         merged.append(result)
 
     return merged
+
+
+def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[ExtractionResult]:
+    """
+    Detect if a reply email represents a submission/completion of an assignment.
+
+    Scoring:
+      +1 per completion keyword hit (max 3 counted)
+      -2 if negative pattern (extension request, question, excuse) found
+    Confidence threshold: score >= 2
+    """
+    if not text.strip():
+        return None
+
+    kw_hits = len(_COMPLETION_KW.findall(text))
+    # Cap raw keyword count to avoid flooding score on verbose replies
+    score = min(kw_hits, 3)
+
+    # Attachment/proof words are strong signals — add a bonus
+    strong_proof = re.search(
+        r"\b(link|video|screenshot|photo|picture|selfie|loom|drive|attach(?:ed|ment)?|proof)\b",
+        text, re.IGNORECASE
+    )
+    if strong_proof:
+        score += 1
+
+    # Negative patterns reduce confidence
+    if _COMPLETION_NEGATIVES.search(text):
+        score -= 2
+
+    if score < 2:
+        return None
+
+    confidence = min(0.5 + 0.15 * score, 0.92)
+    return ExtractionResult(
+        event_type="completion",
+        assignment_name=clean_subject or "",
+        raw_excerpt=text[:300],
+        parsed_due_at=None,
+        confidence=round(confidence, 2),
+    )
 
 
 def _eod(reference_date: Optional[datetime]) -> Optional[datetime]:

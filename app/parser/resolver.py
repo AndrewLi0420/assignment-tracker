@@ -1,12 +1,101 @@
+import re
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models import Assignment, AssignmentEvent
-from app.parser.normalizer import make_normalized_key
+from app.parser.normalizer import make_normalized_key, normalize_assignment_name
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def resolve_completion(db: Session, event: AssignmentEvent) -> list[Assignment]:
+    """
+    For a completion event, find matching active assignments and mark them done.
+
+    Matching strategy (in priority order):
+      1. Same thread_id + exactly 1 active assignment in that thread → auto-complete it.
+      2. Same thread_id + multiple assignments → name-overlap match (>= 2 tokens).
+      3. No thread match → name-overlap match across all active assignments.
+
+    Returns the list of assignments that were completed.
+    """
+    now = datetime.utcnow()
+    completed: list[Assignment] = []
+
+    # --- Candidates: same thread ---
+    thread_matches = (
+        db.query(Assignment)
+        .filter(
+            Assignment.source_thread_id == event.gmail_thread_id,
+            Assignment.status != "completed",
+        )
+        .all()
+    ) if event.gmail_thread_id else []
+
+    if thread_matches:
+        if len(thread_matches) == 1:
+            # Single assignment in thread — high confidence, auto-complete
+            _mark_completed(thread_matches[0], event, now)
+            completed.append(thread_matches[0])
+            logger.info("Auto-completed (thread/1): %s", thread_matches[0].normalized_key)
+        else:
+            # Multiple assignments — require name overlap to narrow down
+            mention = event.assignment_name or ""
+            overlap_matches = _name_overlap_filter(mention, thread_matches, min_overlap=2)
+            if overlap_matches:
+                for a in overlap_matches:
+                    _mark_completed(a, event, now)
+                    completed.append(a)
+                    logger.info("Auto-completed (thread/overlap): %s", a.normalized_key)
+            else:
+                # Couldn't pinpoint which one — complete all in thread as a fallback
+                # only if the completion message is highly confident (e.g., very short reply)
+                if len(mention.split()) <= 4:
+                    for a in thread_matches:
+                        _mark_completed(a, event, now)
+                        completed.append(a)
+                        logger.info("Auto-completed (thread/all-short): %s", a.normalized_key)
+    else:
+        # No thread match — global name-overlap search
+        mention = event.assignment_name or ""
+        if mention:
+            all_active = (
+                db.query(Assignment)
+                .filter(Assignment.status != "completed")
+                .all()
+            )
+            overlap_matches = _name_overlap_filter(mention, all_active, min_overlap=3)
+            for a in overlap_matches:
+                _mark_completed(a, event, now)
+                completed.append(a)
+                logger.info("Auto-completed (global/overlap): %s", a.normalized_key)
+
+    return completed
+
+
+def _mark_completed(assignment: Assignment, event: AssignmentEvent, now: datetime) -> None:
+    assignment.status = "completed"
+    assignment.completed_at = now
+    _append_note(assignment, f"Auto-completed from email reply ({event.gmail_message_id})")
+
+
+def _name_overlap_filter(
+    mention: str, candidates: list[Assignment], min_overlap: int = 2
+) -> list[Assignment]:
+    """Return candidates whose normalized name shares >= min_overlap tokens with mention."""
+    mention_tokens = set(re.findall(r"\b[a-z0-9]{3,}\b", normalize_assignment_name(mention)))
+    if not mention_tokens:
+        return []
+
+    results = []
+    for a in candidates:
+        name_tokens = set(re.findall(r"\b[a-z0-9]{3,}\b", normalize_assignment_name(a.assignment_name or "")))
+        overlap = len(mention_tokens & name_tokens)
+        if overlap >= min_overlap:
+            results.append(a)
+    return results
 
 
 def resolve_assignment(
@@ -95,6 +184,10 @@ def _apply_event(assignment: Assignment, event: AssignmentEvent, due_at_estimate
         if assignment.status in ("unknown", None):
             assignment.status = "active"
         _append_note(assignment, "Punishment")
+
+    elif event.event_type == "completion":
+        # Handled separately via resolve_completion — nothing to do here
+        pass
 
     elif event.event_type == "unknown":
         if event.parsed_due_at:

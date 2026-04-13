@@ -6,7 +6,7 @@ from app.gmail_client import get_gmail_service, list_new_message_ids, fetch_mess
 from app.models import EmailMessage, AssignmentEvent
 from app.parser.email_cleaner import clean_new_message_text
 from app.parser.ai_extractor import extract_events
-from app.parser.resolver import resolve_assignment, refresh_statuses
+from app.parser.resolver import resolve_assignment, resolve_completion, refresh_statuses
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -100,10 +100,18 @@ def run_sync(db: Session, max_new: int = 25) -> dict:
             db.add(event_row)
             db.flush()
 
-            # Resolve into canonical assignment
+            # Resolve into canonical assignment (or mark completion)
             try:
-                resolve_assignment(db, event_row, due_at_estimated=due_at_estimated)
-                new_event_count += 1
+                if ev.event_type == "completion":
+                    completed = resolve_completion(db, event_row)
+                    if completed:
+                        new_event_count += len(completed)
+                        logger.info("Completion event auto-completed %d assignments", len(completed))
+                    else:
+                        logger.info("Completion event from %s matched no active assignments", message_id)
+                else:
+                    resolve_assignment(db, event_row, due_at_estimated=due_at_estimated)
+                    new_event_count += 1
             except Exception as e:
                 logger.error("Resolve failed for event from %s: %s", message_id, e)
 
