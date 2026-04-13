@@ -267,12 +267,14 @@ def extract_events(
 
 def _strip_quoted_reply(text: str) -> str:
     """
-    Remove quoted reply chains from email body so only the pledge's own words
-    are scored for completion detection.
+    Remove quoted reply chains AND email signatures so only the pledge's own
+    message body is scored for completion detection.
+
     Strips:
-      - Lines starting with ">" (standard quote marker)
-      - Everything after "On ... wrote:" (Gmail reply header)
-      - Everything after "---------- Forwarded message ---------"
+      - Gmail "On ... wrote:" header and everything after
+      - Forwarded message blocks
+      - Individual ">" quoted lines
+      - Email signature block (starts after "Best,", "Regards,", "Sincerely," etc.)
     """
     # Remove Gmail forward/reply header and everything below it
     text = re.split(
@@ -280,12 +282,26 @@ def _strip_quoted_reply(text: str) -> str:
         text, maxsplit=1, flags=re.IGNORECASE
     )[0]
     text = re.split(
-        r"\nOn\s+.{5,60}wrote:\s*\n",
+        r"\nOn\s+.{5,80}wrote:\s*\n",
         text, maxsplit=1, flags=re.IGNORECASE
     )[0]
-    # Remove individual ">"-quoted lines
-    lines = [ln for ln in text.splitlines() if not ln.strip().startswith(">")]
-    return "\n".join(lines).strip()
+
+    # Strip email signature block — everything from a sign-off line onward
+    _SIGN_OFF = re.compile(
+        r"^(Best(?:\s+regards)?[,.]?|Regards[,.]?|Sincerely[,.]?|Cheers[,.]?|Thanks[,.]?|"
+        r"Thank\s+you[,.]?|Yours[,.]?|Take\s+care[,.]?|Later[,.]?|Peace[,.]?|"
+        r"Respectfully[,.]?|Warm\s+regards[,.]?|—|--)\s*$",
+        re.IGNORECASE,
+    )
+    lines = text.splitlines()
+    clean_lines = []
+    for ln in lines:
+        if _SIGN_OFF.match(ln.strip()):
+            break  # everything from here on is signature
+        if not ln.strip().startswith(">"):
+            clean_lines.append(ln)
+
+    return "\n".join(clean_lines).strip()
 
 
 def _detect_completion(text: str, clean_subject: Optional[str]) -> Optional[ExtractionResult]:
